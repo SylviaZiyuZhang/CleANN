@@ -4,7 +4,7 @@ import yaml
 import diskannpy
 import time
 import os
-from utils import test_static_index, num_recalled
+from utils import test_static_index, num_recalled, parse_ann_benchmarks_hdf5
 
 dynamic_test = diskannpy._diskannpy.run_dynamic_test
 
@@ -18,16 +18,6 @@ alpha = 1.2
 build_complexity = 64
 graph_degree = 64
 query_complexity = 64
-
-
-def parse_ann_benchmarks_hdf5(data_path):
-    with h5py.File(data_path, "r") as file:
-        gt_neighbors = np.array(file["neighbors"])
-        queries = np.array(file["test"])
-        data = np.array(file["train"])
-
-        return data, queries, gt_neighbors
-
 
 data_path = f"data/{dataset_name}"
 data, queries, gt_neighbors = parse_ann_benchmarks_hdf5(data_path)
@@ -55,11 +45,9 @@ for num_threads in [8]:
         vector_dtype=np.float32,
         dimensions=dimension,
         max_vectors=len(data),
-        complexity=64,
-        graph_degree=64,
+        complexity=build_complexity,
+        graph_degree=graph_degree,
     )
-
-    print(data.shape, queries.shape)
 
     dynamic_test(
         dynamic_index._index,

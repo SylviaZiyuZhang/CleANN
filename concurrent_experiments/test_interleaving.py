@@ -32,18 +32,6 @@ def parse_ann_benchmarks_hdf5(data_path):
 data_path = f"data/{dataset_name}"
 data, queries, gt_neighbors = parse_ann_benchmarks_hdf5(data_path)
 
-# test_static_index(
-#     data=data,
-#     queries=queries,
-#     gt_neighbors=gt_neighbors,
-#     build_complexity=build_complexity,
-#     graph_degree=graph_degree,
-#     alpha=alpha,
-#     query_complexity=query_complexity,
-#     query_k=k,
-#     dataset_short_name=dataset_short_name,
-# )
-
 data = data[:10000]
 num_adversarial_per_data = 16
 adversarial_queries = []
@@ -89,10 +77,3 @@ for strategy in ["Easy", "Hard"]:
 
 
         print(strategy, num_threads, times[-1], times[0] / times[-1])
-    # total_recalled = 0
-    # for result, query_gt in zip(results[0], gt_neighbors):
-    #     total_recalled += num_recalled(result, query_gt, k)
-
-    # recall = total_recalled / len(queries) / k
-    # print(num_threads, recall, end - start)
-

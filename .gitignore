@@ -386,3 +386,5 @@ diskann_runtime_results.csv
 compile_commands.json
 *.png
 *.csv
+
+python/src/_diskannpy*.so

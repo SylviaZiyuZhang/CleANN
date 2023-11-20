@@ -1,9 +1,7 @@
 import h5py
 import numpy as np
-import yaml
 import diskannpy
 import time
-import os
 from utils import test_static_index, num_recalled
 
 dynamic_test = diskannpy._diskannpy.run_dynamic_test
@@ -48,7 +46,7 @@ test_static_index(
     dataset_short_name=dataset_short_name,
 )
 
-for num_threads in [8]:
+for num_threads in [1, 2, 4, 8]:
 
     dynamic_index = diskannpy.DynamicMemoryIndex(
         distance_metric="l2",
