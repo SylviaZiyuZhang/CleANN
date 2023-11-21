@@ -1,0 +1,1 @@
+Static index has recall 1.0 and took 5.37 seconds

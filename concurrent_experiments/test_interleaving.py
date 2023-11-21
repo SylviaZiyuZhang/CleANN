@@ -41,7 +41,6 @@ for i in range(8):
 adversarial_queries = np.array(adversarial_queries)
 
 for strategy in ["Easy", "Hard"]:
-
     times = []
     for num_threads in [1, 2, 4, 8]:
         start = time.time()
@@ -58,9 +57,17 @@ for strategy in ["Easy", "Hard"]:
         print(data.shape, adversarial_queries.shape)
 
         if strategy == "Easy":
-            updates = [(0, i) for i in range(len(data))] + [(1, i) for i in range(len(adversarial_queries))]
+            updates = [(0, i) for i in range(len(data))] + [
+                (1, i) for i in range(len(adversarial_queries))
+            ]
         else:
-            updates = [(i % (num_adversarial_per_data + 1) > 0, i // (num_adversarial_per_data + 1)) for i in range((num_adversarial_per_data + 1) * len(data))]
+            updates = [
+                (
+                    i % (num_adversarial_per_data + 1) > 0,
+                    i // (num_adversarial_per_data + 1),
+                )
+                for i in range((num_adversarial_per_data + 1) * len(data))
+            ]
 
         results = dynamic_test(
             dynamic_index._index,
@@ -74,6 +81,5 @@ for strategy in ["Easy", "Hard"]:
 
         end = time.time()
         times.append(end - start)
-
 
         print(strategy, num_threads, times[-1], times[0] / times[-1])

@@ -39,7 +39,6 @@ test_static_index(
 )
 
 for num_threads in [8]:
-
     dynamic_index = diskannpy.DynamicMemoryIndex(
         distance_metric="l2",
         vector_dtype=np.float32,
