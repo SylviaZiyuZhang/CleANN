@@ -1,1 +1,12 @@
-Static index has recall 1.0 and took 5.37 seconds
+Static index has recall 1.0 and took 5.75 seconds
+Times with 1 threads: [('Indexing', 613.6318538188934), ('Querying', 4.758448362350464), ('Total', 619.1185073852539)]
+Speedups with 1 threads: [('Indexing', 1.0), ('Querying', 1.0), ('Total', 1.0)]
+L2: Using AVX2 distance computation DistanceL2Float
+Times with 2 threads: [('Indexing', 308.05639243125916), ('Querying', 2.397944688796997), ('Total', 311.8404767513275)]
+Speedups with 2 threads: [('Indexing', 1.9919465036123913), ('Querying', 1.9843862056458383), ('Total', 1.9853692946953791)]
+L2: Using AVX2 distance computation DistanceL2Float
+Times with 4 threads: [('Indexing', 157.0111837387085), ('Querying', 1.2195987701416016), ('Total', 159.2077624797821)]
+Speedups with 4 threads: [('Indexing', 3.9082047482685955), ('Querying', 3.9016506730307574), ('Total', 3.8887457353963892)]
+L2: Using AVX2 distance computation DistanceL2Float
+Times with 8 threads: [('Indexing', 77.18532586097717), ('Querying', 0.6244182586669922), ('Total', 78.66542720794678)]
+Speedups with 8 threads: [('Indexing', 7.950110295888887), ('Querying', 7.620610538373425), ('Total', 7.870274520325882)]
