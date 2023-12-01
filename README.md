@@ -10,6 +10,11 @@ pip3 install --no-build-isolation -ve .
 ```
 If you only change a .cc file, this should be relatively fast.
 
+If you get output saying pip is installing UNKNOWN, first run
+```
+pip install setuptools --upgrade
+```
+
 To develop in vscode and have syntax highlighting work (tested with the clangd extension), run
 ```
 scripts/generate-compile-commands.sh
