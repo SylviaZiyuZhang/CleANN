@@ -6,14 +6,29 @@ Concurrent DiskANN project, forked from https://github.com/microsoft/DiskANN, co
 
 Fast incremental builds can be done with
 ```
-pip3 install --no-build-isolation -ve .
+python3 -m pip install --no-build-isolation -ve .
 ```
 If you only change a .cc file, this should be relatively fast.
 
+You may first need to install pybind11:
+```
+python3 -m pip install pybind11
+```
+
 If you get output saying pip is installing UNKNOWN, first run
 ```
-pip install setuptools --upgrade
+python3 -m pip install setuptools --upgrade
 ```
+
+You will also likely need to install the packages the original DiskANN needs:
+```
+sudo apt install make cmake g++ libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev
+```
+and
+```
+sudo apt install libmkl-full-dev
+```
+See the original readme (https://github.com/microsoft/DiskANN/tree/main#readme).
 
 To develop in vscode and have syntax highlighting work (tested with the clangd extension), run
 ```
