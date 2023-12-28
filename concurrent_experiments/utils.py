@@ -69,7 +69,7 @@ def test_static_index(
 def parse_ann_benchmarks_hdf5(data_path):
     with h5py.File(data_path, "r") as file:
         gt_neighbors = np.array(file["neighbors"])
-        queries = np.array(file["test"])
+        queries = np.array(file["train"])
         data = np.array(file["train"])
 
         return data, queries, gt_neighbors
@@ -104,6 +104,7 @@ def run_dynamic_test(plans, max_vectors, threads=[1, 2, 4, 8], distance_metric="
                 query_complexity=query_complexity,
                 num_threads=num_threads,
             )
+            print("Finished plan", plan_name)
 
             all_times[plan_name].append(time.time() - start_plan_time)
 
