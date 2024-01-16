@@ -2898,7 +2898,7 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag)
 template <typename T, typename TagT, typename LabelT>
 int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const std::vector<LabelT> &labels)
 {
-
+    std::cout << "Inserting point " << tag << std::endl; 
     assert(_has_built);
     if (tag == static_cast<TagT>(0))
     {
@@ -2983,22 +2983,27 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
                                         -1, __FUNCSIG__, __FILE__, __LINE__);
         }
 #else
+        diskann::cerr << "No location available." << std::endl;
         return -1;
 #endif
     } // cant insert as active pts >= max_pts
     dl.unlock();
 
     // Insert tag and mapping to location
+    std::cout << "dl unlocked" << std::endl;
     if (_enable_tags)
     {
+        std::cout << "tag enabled" << std::endl;
         // if tags are enabled and tag is already inserted. so we can't reuse that tag.
         if (_tag_to_location.find(tag) != _tag_to_location.end())
         {
+            std::cout << "Cannot reuse tag " << tag << std::endl;
             release_location(location);
             return -1;
         }
 
         _tag_to_location[tag] = location;
+        std::cout << "Setting tag " << tag << std::endl;
         _location_to_tag.set(location, tag);
     }
     tl.unlock();
@@ -3079,6 +3084,7 @@ void Index<T, TagT, LabelT>::_lazy_delete(TagVector &tags, TagVector &failed_tag
 
 template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>::lazy_delete(const TagT &tag)
 {
+    std::cout << "Deleting tag " << tag << std::endl;
     std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
