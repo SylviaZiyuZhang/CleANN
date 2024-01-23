@@ -68,10 +68,6 @@ def test_static_index(
 
 def parse_ann_benchmarks_hdf5(data_path):
     with h5py.File(data_path, "r") as file:
-        for k in file:
-            print(k)
-            print(len(file[k]))
-            # print(np.array(file[k])[0])
         gt_neighbors = np.array(file["neighbors"])
         gt_dists = np.array(file["distances"])
         queries = np.array(file["test"])
@@ -99,8 +95,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
             graph_degree=graph_degree,
         )
         
-        #for it in plans:
-        #    print(len(it))
 
         for plan_name, data, queries, update_list, optional_gt in plans:
             start_plan_time = time.time()
@@ -119,19 +113,9 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
             print("Finished plan", plan_name)
 
             for i, it in enumerate(update_list):
-                if it[0] == 1: # A search query
+                if it[0] == 1 and i < len(neighbors): # A search query with gt
                     search_count += 1
                     for k in range(query_k):
-                        #print(i, it[1])
-                        #print("Results:")
-                        #print(results[0][i])
-                        #print("Ground truth neighbors:")
-                        #print(neighbors[it[1]][:query_k])
-                        
-                        #print("Results:")
-                        #print(results[1][i])
-                        #print("Ground truth distances:")
-                        #print(dists[it[1]][:query_k])
                         
                         if results[0][i][k] in neighbors[it[1]][:query_k]:
                             recall_count += 1

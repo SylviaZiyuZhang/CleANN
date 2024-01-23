@@ -16,21 +16,22 @@ for i in range(0, len(data), chunk_size):
     )
 """
 
-data_1 = data[:500000]
-data_2 = data[500000:1000000]
+#data_1 = data[:500000]
+#data_2 = data[500000:1000000]
 
-#data_1 = data[:50000]
-#data_2 = data[50000:100000]
-#data = data[:100000]
+data_1 = data[:50000]
+data_2 = data[50000:100000]
+data = data[:100000]
 
-#data_1 = data[:50]
-#data_2 = data[50:100]
-#data = data[:100]
+#data_1 = data[:500000]
+#data_2 = data[500000:1000000]
+#data = data[:1000000]
 
 # indexing_plan = [(0, i) for i in range(len(data_1))]
 indexing_plan = [(0, i) for i in range(len(data))]
-initial_lookup = [(1, i) for i in range(len(queries))]
-set_size = 25
+# initial_lookup = [(1, i) for i in range(len(queries))]
+initial_lookup = [(1, i) for i in range(1000)]
+set_size = 100
 
 update_plan = []
 for i in range(0, len(data_2), set_size):
@@ -40,8 +41,9 @@ for i in range(0, len(data_2), set_size):
     for j in range(set_size):
         if i+j < len(data_2):
             update_plan.append((0, len(data_1) + i+j))
-            if len(data_2+i+j) < len(queries):
+            if len(data_1)+i+j < len(queries):
                 update_plan.append((1, len(data_1)+i+j))
+    update_plan += initial_lookup
 
 
     
@@ -53,7 +55,22 @@ plans = [
     ("Update", data, queries, update_plan, None),
     ("Re-search", data, queries, initial_lookup, None),
     ("Update", data, queries, update_plan, None),
+    ("Re-search", data, queries, initial_lookup, None),
+    ("Update", data, queries, update_plan, None),
+    ("Re-search", data, queries, initial_lookup, None),
+    ("Update", data, queries, update_plan, None),
+    ("Re-search", data, queries, initial_lookup, None),
+    ("Update", data, queries, update_plan, None),
+    ("Re-search", data, queries, initial_lookup, None),
+    ("Update", data, queries, update_plan, None),
+    ("Re-search", data, queries, initial_lookup, None),
+    ("Update", data, queries, update_plan, None),
+    ("Re-search", data, queries, initial_lookup, None),
+    ("Update", data, queries, update_plan, None),
+    ("Re-search", data, queries, initial_lookup, None),
 ]
+
+
 """
 ("Re-search", data, queries, initial_lookup, None),
 ("Update", data, queries, update_plan, None),
