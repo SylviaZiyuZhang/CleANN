@@ -8,6 +8,40 @@ dataset_short_name = dataset_name.split("-")[0]
 data_path = f"data/{dataset_name}"
 data, queries, gt_neighbors, gt_dists = parse_ann_benchmarks_hdf5(data_path)
 
+print(data[0])
+print(queries[0])
+print(gt_neighbors[0])
+print(gt_dists[0])
+
+def brute_force_knn(data, start, end, query, k=10):
+    top_ids = set()
+    dist_threshold = 0
+    cur_k = 0
+    for i in range(start, end):
+        if cur_k < 10:
+            top_ids.add(i)
+            dist_threshold = min(dist_threshold, np.sqrt(np.dot(query, data[i])))
+
+def get_or_create_test_data(path, size, dimension, n_queries, gt_k=100):
+    """
+    Requires:
+        path: string
+        size: number of datapoints in the dataset, positive integer
+        dimension: number of dimensions of each data point in the dataset,
+            positive integer >= 32, power of 2
+        n_queries: number of queries in the dataset, positive integer
+        gt_kk: number of ground truth neighbors to compute up to, integer
+    Ensures:
+        data: size x dimension real number np array
+        queries: n_queries x dimension real number np array
+        gt_neighbors: n_queries x gt_k np array of dataset ID (pos ints)
+        gt_dists: n_queries x gt_k np array of positive real numbers
+    Side effect:
+        if the data is not loaded from the path supplied successfully,
+        attempt to create the requested dataset and store it at path
+    """
+    pass
+
 def augment_data_with_random_clusters(data, dist="normal", alpha=0.01, chunk_size=8):
     # TODO: data should be passed with reference
     if dist == "normal":
