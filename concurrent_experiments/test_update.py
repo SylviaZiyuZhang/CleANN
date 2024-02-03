@@ -1,4 +1,6 @@
+import heapq
 import numpy as np
+import h5py # FileNotFoundError
 from utils import parse_ann_benchmarks_hdf5, run_dynamic_test
 
 distance_metric = "euclidean"
@@ -14,15 +16,27 @@ print(gt_neighbors[0])
 print(gt_dists[0])
 
 def brute_force_knn(data, start, end, query, k=10):
-    top_ids = set()
-    dist_threshold = 0
+    """
+    data: dataset
+    start: the starting index to compute ground truth neighbors to
+    end: the ending index (non-inclusive) to compute ground truth neighbors to
+    query: the query vector
+    k: the number of ground truth neighbors to compute
+    REQUIRES:
+        - data.shape[1] == len(query) (matching dimensions)
+        - 0 <= start <= end <= len(data)
+    """
+    neighbors = []
     cur_k = 0
     for i in range(start, end):
-        if cur_k < 10:
-            top_ids.add(i)
-            dist_threshold = min(dist_threshold, np.sqrt(np.dot(query, data[i])))
+        heapq.heappush(neighbors, (-np.sqrt(np.dot(query, data[i])), i))
+        if cur_k >= k:
+            heapq.heappop(neighbors)
+    neighbor_ids = [i for (_, i) in neighbors]
+    dists = [-d for (d, _) in neighbors]
+    return neighbor_ids, dists
 
-def get_or_create_test_data(path, size, dimension, n_queries, gt_k=100):
+def load_or_create_test_data(path, size, dimension, n_queries, gt_k=100):
     """
     Requires:
         path: string
@@ -40,7 +54,27 @@ def get_or_create_test_data(path, size, dimension, n_queries, gt_k=100):
         if the data is not loaded from the path supplied successfully,
         attempt to create the requested dataset and store it at path
     """
-    pass
+    try:
+        return parse_ann_benchmarks_hdf5(path)
+    except h5py.FileNotFoundError:
+        pass
+    
+    data = np.random.normal(size=(size, dimension), scale=1000.0)
+    queries = np.random.normal(size=(n_queries, dimension), scale=1000.0)
+    gt_neighbors = []
+    gt_dists = []
+    for i in range(n_queries):
+        nn, dd = brute_force_knn(data, 0, len(data), queries[i], gt_k)
+        gt_neighbors.append(nn)
+        gt_dists.append(dd)
+    
+    h5f = h5py.file('manual_data.h5', 'w')
+    h5f.create_dataset("train", data=data)
+    h5f.create_dataset("test", data=queries)
+    h5f.create_dataset("neighbors", data=gt_neighbors)
+    h5f.create_dataset("distances", data=gt_dists)
+    h5f.close()
+    return data, queries, gt_neighbors, gt_dists
 
 def augment_data_with_random_clusters(data, dist="normal", alpha=0.01, chunk_size=8):
     # TODO: data should be passed with reference
