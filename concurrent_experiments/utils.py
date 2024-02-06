@@ -97,28 +97,56 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
         
 
         for plan_name, data, queries, update_list, optional_gt in plans:
+            print("Starting "+ plan_name)
+            print(len(queries))
+            print(len(update_list))
+            if optional_gt is not None:
+                print(len(optional_gt))
             start_plan_time = time.time()
             recall_count = 0
             search_count = 0
+            actual_queries = []
+            actual_update_list = []
+            for i, it in enumerate(update_list):
+                if it[0] == 1 and it[1] < len(queries):
+                    actual_queries.append(queries[it[1]])
+                    #print(update_list[i])
+                    actual_update_list.append((it[0], len(actual_queries) - 1))
+                else:
+                    actual_update_list.append(it)
+            print(len(queries))
+            print(len(actual_queries))
 
             results = dynamic_test(
                 dynamic_index._index,
                 data,
-                queries,
-                update_list,
+                #queries,
+                actual_queries,
+                #update_list,
+                actual_update_list,
                 query_k=query_k,
                 query_complexity=query_complexity,
                 num_threads=num_threads,
             )
+            print(sum(it[0] == 1 for it in update_list))
             print("Finished plan", plan_name)
-
-            for i, it in enumerate(update_list):
-                if it[0] == 1 and i < len(neighbors): # A search query with gt
-                    search_count += 1
-                    for k in range(query_k):
-                        
-                        if results[0][i][k] in neighbors[it[1]][:query_k]:
-                            recall_count += 1
+            if optional_gt is not None:
+                for i, it in enumerate(update_list):
+                    if it[0] == 1 and it[1] < len(queries): # A search query
+                        for k in range(query_k):
+                            try:
+                                if results[0][search_count][k] in optional_gt[i][:query_k]:
+                                    recall_count += 1
+                            except IndexError as ex:
+                                print(results[0].shape)
+                                print(search_count)
+                                
+                                #print(optional_gt.shape)
+                                print(len(optional_gt))
+                                print(len(optional_gt[i]))
+                                print(i)
+                                raise ex
+                        search_count += 1
             recall = -1 if search_count == 0 else (recall_count / (search_count * query_k))
             all_times[plan_name].append(time.time() - start_plan_time)
             all_recalls[plan_name].append(recall)

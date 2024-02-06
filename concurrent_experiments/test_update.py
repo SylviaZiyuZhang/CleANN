@@ -10,10 +10,12 @@ dataset_short_name = dataset_name.split("-")[0]
 data_path = f"data/{dataset_name}"
 data, queries, gt_neighbors, gt_dists = parse_ann_benchmarks_hdf5(data_path)
 
+"""
 print(data[0])
 print(queries[0])
 print(gt_neighbors[0])
 print(gt_dists[0])
+"""
 
 def brute_force_knn(data, start, end, query, k=10):
     """
@@ -85,6 +87,64 @@ def augment_data_with_random_clusters(data, dist="normal", alpha=0.01, chunk_siz
                 size=(chunk_size, len(data[0]))
             )
 
+def close_insertion_experiment(data, queries):
+    data = data[:1000]
+    queries = queries[:100]
+    chunk_size = 8
+    l = len(data)
+    alpha = 1
+    batches_to_insert = []
+    for q in queries:
+        b = q + alpha * np.random.normal(size=(chunk_size, len(q)))
+        batches_to_insert.append(b)
+
+    indexing_plan = [(0, i) for i in range(len(data))]
+    for b in batches_to_insert:
+        data = np.concatenate((data, b))
+    print(data.shape)
+    gt_before = []
+    dists_before = []
+    gt_after = []
+    dists_after = []
+    # data, start, end, query
+    for i, q in enumerate(queries):
+        gt, dists = brute_force_knn(data, 0, i * chunk_size, q)
+        gt_before.append(gt)
+        dists_before.append(dists)
+        gt, dists = brute_force_knn(data, 0, (i+1)*chunk_size, q)
+        gt_after.append(gt)
+        dists_after.append(dists)
+    
+    update_plan = []
+    update_gt_before = []
+    update_gt_after = []
+    for i, q in enumerate(queries):
+        for j in range(chunk_size//2):
+            update_plan.append((0, l + i*chunk_size + j))
+            update_gt_before.append([])
+            update_gt_after.append([])
+        update_plan.append((1, i))
+        update_gt_before.append(gt_before[i])
+        update_gt_after.append(gt_after[i])
+        for j in range(chunk_size//2, chunk_size):
+            update_plan.append((0, l + i*chunk_size + j))
+            update_gt_before.append([])
+            update_gt_after.append([])
+    
+    plans = [
+        ("Indexing", data, queries, indexing_plan, None),
+        ("Concur Before", data, queries, update_plan, update_gt_before),
+    ]
+    print("Calling run_dynamic_test")
+    # print(update_plan[10:])
+    run_dynamic_test(plans, update_gt_before, dists_before, max_vectors=len(data))
+
+    plans = [
+        ("Indexing", data, queries, indexing_plan, None),
+        ("Concur After", data, queries, update_plan, update_gt_after),
+    ]
+    run_dynamic_test(plans, update_gt_after, dists_after, max_vectors=len(data))
+
 def half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists):
     #data_1 = data[:500000]
     #data_2 = data[500000:1000000]
@@ -98,43 +158,57 @@ def half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists):
     #data = data[:1000000]
 
     # indexing_plan = [(0, i) for i in range(len(data_1))]
-    indexing_plan = [(0, i) for i in range(len(data))]
+    indexing_plan = [(0, i) for i in range(len(data_1))]
     # initial_lookup = [(1, i) for i in range(len(queries))]
-    initial_lookup = [(1, i) for i in range(1000)]
-    set_size = 100
+    initial_lookup = [(1, i) for i in range(100)]
+    initial_lookup_gt = gt_neighbors[:100]
+    set_size = 10
 
     update_plan = []
+    update_plan_gt = []
     for i in range(0, len(data_2), set_size):
+        
         for j in range(set_size):
             if i+j < len(data_2):
                 update_plan.append((2, len(data_1) + i+j))
+                update_plan_gt.append([])
+        
         for j in range(set_size):
             if i+j < len(data_2):
                 update_plan.append((0, len(data_1) + i+j))
+                update_plan_gt.append([])
                 if len(data_1)+i+j < len(queries):
                     update_plan.append((1, len(data_1)+i+j))
-        update_plan += initial_lookup
-        
+                    update_plan_gt.append(gt_neighbors[len(data_1)+i+j])
+        for e in initial_lookup:
+            update_plan.append(e)
+        for e in initial_lookup_gt:
+            update_plan_gt.append(e)
+    
+
     # indexing_plan = [(0, i) for i in range(len(data))]
 
     plans = [
         ("Indexing", data, queries, indexing_plan, None),
-        ("Initial Search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
-        ("Update", data, queries, update_plan, None),
-        ("Re-search", data, queries, initial_lookup, None),
+        ("Initial Search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Update", data, queries, update_plan, update_plan_gt),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
     ]
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
+
+# half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists)
+close_insertion_experiment(data, queries)
