@@ -121,14 +121,14 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
         current_update = update_count++;
 
         auto [update_type, update_id] = update_list.at(current_update);
-        if (update_type == 0)
+        if (update_type == 0) // insert
         {
+            // std::cout << "Inserting " << update_id << "->" << data.size() << std::endl;
             auto id = update_id + 1;
             index._index.insert_point(data.data(update_id), id);
         }
-        else if (update_type == 1)
+        else if (update_type == 1) // query
         {
-
             std::vector<float *> empty_vector;
             index._index.search_with_tags(queries.data(update_id), query_k, query_complexity,
                                           ids.mutable_data(update_id), dists.mutable_data(update_id), empty_vector);
@@ -138,7 +138,7 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
                 ids.mutable_data(update_id)[i]--;
             }
         }
-        else if (update_type == 2)
+        else if (update_type == 2) // delete
         {
             index.mark_deleted(update_id + 1);
         }
