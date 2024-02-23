@@ -2448,6 +2448,7 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes(const IndexWrit
     }
 
     diskann::cout << "Starting consolidate_deletes... ";
+    std::cout << "Starting consolidate_deletes..." << std::endl;
 
     std::unique_ptr<tsl::robin_set<uint32_t>> old_delete_set(new tsl::robin_set<uint32_t>);
     {

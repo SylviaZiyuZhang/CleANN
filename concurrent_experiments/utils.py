@@ -97,11 +97,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
         
 
         for plan_name, data, queries, update_list, optional_gt in plans:
-            print("Starting "+ plan_name)
-            print(len(queries))
-            print(len(update_list))
-            if optional_gt is not None:
-                print(len(optional_gt))
+            # print("Starting "+ plan_name)
             start_plan_time = time.time()
             recall_count = 0
             search_count = 0
@@ -114,8 +110,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
                     actual_update_list.append((it[0], len(actual_queries) - 1))
                 else:
                     actual_update_list.append(it)
-            print(len(queries))
-            print(len(actual_queries))
 
             results = dynamic_test(
                 dynamic_index._index,
@@ -128,8 +122,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
                 query_complexity=query_complexity,
                 num_threads=num_threads,
             )
-            print(sum(it[0] == 1 for it in update_list))
-            print("Finished plan", plan_name)
+            # print("Finished plan", plan_name)
             if optional_gt is not None:
                 for i, it in enumerate(update_list):
                     if it[0] == 1 and it[1] < len(queries): # A search query

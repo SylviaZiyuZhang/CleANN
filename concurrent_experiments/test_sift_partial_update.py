@@ -12,7 +12,7 @@ from pathlib import Path
 #path = Path('~/data/tmp/').expanduser()
 #path.mkdir(parents=True, exist_ok=True)
 
-def brute_force_knn(data, start, end, query, k=10):
+def brute_force_knn(data, start, end, query, k=10, return_set=False):
     """
     data: dataset
     start: the starting index to compute ground truth neighbors to
@@ -30,10 +30,11 @@ def brute_force_knn(data, start, end, query, k=10):
         cur_k += 1
         if cur_k > k:
             heapq.heappop(neighbors)
+
+    if return_set:
+        return set(neighbors)
     neighbor_ids = [i for (_, i) in neighbors]
     dists = [-d for (d, _) in neighbors]
-    #print(start, end)
-    #print(len(neighbor_ids))
     return neighbor_ids, dists
 
 def get_ground_truth_batch(data, start, end, queries, k=10, dataset_name="sift", size=10000):
@@ -60,6 +61,7 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
     path = Path('~/data/ann_rolling_update_gt/'+dataset_name+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
     path.mkdir(parents=True, exist_ok=True)
     batch_size = len(data) // batch_num
+    bigger_k = 5 * k
     #np.save(path/'x', x)
     #np.save(path/'y', y)
     assert len(data) == len(data_to_update)
@@ -72,41 +74,49 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
     for i, v in enumerate(data):
         for j, q in enumerate(queries):
             all_neighbors[j].add((-np.linalg.norm(q-data[i]), i))
-            if len(all_neighbors[j]) > k:
+            if len(all_neighbors[j]) > bigger_k:
                 min_elem = (math.inf, -1)
                 for kk in all_neighbors[j]:
-                    if kk.first < min_elem.first
+                    if kk[0] < min_elem[0]:
                         min_elem = kk
                 all_neighbors[j].remove(min_elem)
     
     all_neighbor_ids = [[] for _ in queries]
     all_dists = [[] for _ in queries]
     for j, neighbors in enumerate(all_neighbors):
-        all_neighbor_ids[j] = [i for (_, i) in neighbors]
-        all_dists[j] = [-d for (d, _) in neighbors]
+        knn = heapq.nlargest(k, list(neighbors))
+        all_neighbor_ids[j] = [i for (_, i) in knn]
+        all_dists[j] = [-d for (d, _) in knn]
     all_results_ids.append(all_neighbor_ids)
-    all_results_dists.append(all_results_dists)
+    all_results_dists.append(all_dists)
 
     # Then, iteratively filter out ids that are too small to mimic the deletion
-    for b in range(batch_size, len(data), batch_size):
+    for b in range(0, len(data), batch_size):
         for j, q in enumerate(queries):
-            filter(lambda kk: kk.second < b, all_neighbors[j])
-            for i in range(b - batch_size, b):
+            all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
+            if len(all_neighbors[j]) < k:
+                all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
+                continue
+            for i in range(b, b + batch_size):
                 # insert the new things
-                all_neighbors[j].add((-np.linalg.norm(q-data_to_update[i]), i))
-                if len(all_neighbors[j]) > k:
-                    min_elem = (math.inf, -1)
-                    for kk in all_neighbors[j]:
-                        if kk.first < min_elem.first
-                            min_elem = kk
-                    all_neighbors[j].remove(min_elem)
+                neg_new_dist = -np.linalg.norm(q-data_to_update[i])
+                min_elem = (math.inf, -1)
+                for kk in all_neighbors[j]:
+                    if kk[0] < min_elem[0]:
+                        min_elem = kk
+                if min_elem[0] < neg_new_dist:
+                    all_neighbors[j].add((neg_new_dist, i+len(data)))
+                    if len(all_neighbors[j]) >= bigger_k:
+                        all_neighbors[j].remove(min_elem)
+
         all_neighbor_ids = [[] for _ in queries]
         all_dists = [[] for _ in queries]
         for j, neighbors in enumerate(all_neighbors):
-            all_neighbor_ids[j] = [i for (_, i) in neighbors]
-            all_dists[j] = [-d for (d, _) in neighbors]
+            knn = heapq.nlargest(k, list(neighbors))
+            all_neighbor_ids[j] = [i for (_, i) in knn]
+            all_dists[j] = [-d for (d, _) in knn]
         all_results_ids.append(all_neighbor_ids)
-        all_results_dists.append(all_results_dists)
+        all_results_dists.append(all_dists)
     
     if save:
         raise NotImplementedError
@@ -303,19 +313,26 @@ def half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists):
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
 def small_batch_gradual_update_experiment(data, queries):
-    size = 100000
+    size = 500000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
-    update_batch_size = 1000
+    update_batch_size = 5000
     n_update_batch = 100
 
     indexing_plan = [(0, i) for i in range(size)]
     initial_lookup = [(1, i) for i in range(len(queries))]
-    initial_lookup_gt_neighbors, initial_lookup_gt_dists = brute_force_knn(data, 0, size, queries, k=10)
+    
     
     plans = [("Indexing", data, queries, indexing_plan, None)]
-    gt_neighbors = None
-    gt_dists = None
+    all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
+        path=None,
+        data=data[:size],
+        data_to_update=data[size:2 * size],
+        queries=queries,
+        save=False
+    )
+    initial_lookup_gt_neighbors = all_gt_neighbors[0]
+    initial_lookup_gt_dists = all_gt_dists[0]
     for i in range(0, size, update_batch_size):
         update_plan = []
         for j in range(update_batch_size):
@@ -324,10 +341,11 @@ def small_batch_gradual_update_experiment(data, queries):
             update_plan.append((0, insert_id))
             update_plan.append((2, delete_id))
         plans.append(("Update", data, queries, update_plan, None))
-        gt_neighbors, gt_dists = get_ground_truth_batch_parallel(data, i, i+size, queries)
+        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
+        gt_dists =all_gt_dists[1 + i // update_batch_size]
         plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
 
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
 data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
-small_batch_gradual_update_experiment(data, queries[:100])
+small_batch_gradual_update_experiment(data, queries)
