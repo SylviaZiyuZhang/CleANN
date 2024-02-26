@@ -313,10 +313,10 @@ def half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists):
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
 def small_batch_gradual_update_experiment(data, queries):
-    size = 500000
+    size = 5000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
-    update_batch_size = 5000
+    update_batch_size = 50
     n_update_batch = 100
 
     indexing_plan = [(0, i) for i in range(size)]
@@ -347,5 +347,8 @@ def small_batch_gradual_update_experiment(data, queries):
 
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
-data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
-small_batch_gradual_update_experiment(data, queries[:1000])
+# data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
+data = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular.npy")
+data = data[:10000]
+queries = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
+small_batch_gradual_update_experiment(data, queries)
