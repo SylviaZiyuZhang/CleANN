@@ -93,7 +93,7 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
     # Then, iteratively filter out ids that are too small to mimic the deletion
     for b in range(0, len(data), batch_size):
         for j, q in enumerate(queries):
-            all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
+            # all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
             if len(all_neighbors[j]) < k:
                 all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
                 continue
@@ -350,7 +350,7 @@ def small_batch_gradual_update_experiment(data, queries):
             delete_id = i + j
             insert_id = delete_id + size
             update_plan.append((0, insert_id))
-            update_plan.append((2, delete_id))
+            # update_plan.append((2, delete_id))
         plans.append(("Update", data, queries, update_plan, None))
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
@@ -367,8 +367,8 @@ def small_batch_gradual_update_experiment(data, queries):
         get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
 
 
-data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
-#data = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular.npy")
-#data = data[:10000]
-#queries = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
+# data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
+data = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular.npy")
+data = data[:10000]
+queries = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
 small_batch_gradual_update_experiment(data, queries)
