@@ -141,7 +141,7 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
         else if (update_type == 2) // delete
         {
             index.mark_deleted(update_id + 1);
-            if (update_id % 500 == 0)
+            if (update_id % 5000 == 0)
                 index.consolidate_delete();
         }
     }

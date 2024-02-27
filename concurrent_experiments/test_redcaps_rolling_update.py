@@ -312,7 +312,18 @@ def half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists):
     ]
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
+def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
+
+    indexing_plan = [(0, i) for i in range(start, end)]
+    lookup = [(1, i) for i in range(len(queries))]
+    
+    plans = [("Indexing", data, queries, indexing_plan, None)]
+    plans.append(("Search", data, queries, lookup, gt_neighbors))
+
+    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
+
 def small_batch_gradual_update_experiment(data, queries):
+    # np.random.shuffle(data)
     size = 5000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
@@ -322,7 +333,7 @@ def small_batch_gradual_update_experiment(data, queries):
     indexing_plan = [(0, i) for i in range(size)]
     initial_lookup = [(1, i) for i in range(len(queries))]
     
-    
+    print(len(data), size)
     plans = [("Indexing", data, queries, indexing_plan, None)]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
         path=None,
@@ -347,8 +358,17 @@ def small_batch_gradual_update_experiment(data, queries):
 
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
-# data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
-data = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular.npy")
-data = data[:10000]
-queries = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
+    # ============================== get static recall ==============================
+    # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
+    # reference updated recall exists
+    for i in range(0, size, update_batch_size):
+        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
+        gt_dists =all_gt_dists[1 + i // update_batch_size]
+        get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
+
+
+data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
+#data = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular.npy")
+#data = data[:10000]
+#queries = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
 small_batch_gradual_update_experiment(data, queries)
