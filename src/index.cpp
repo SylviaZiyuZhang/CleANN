@@ -939,8 +939,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         id_scratch.clear();
         dist_scratch.clear();
         {
-            if (_dynamic_index)
-                _locks[n].lock();
+            // if (_dynamic_index)
+            //     _locks[n].lock();
             for (auto id : _graph_store->get_neighbours(n))
             {
                 assert(id < _max_points + _num_frozen_pts);
@@ -957,8 +957,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                     id_scratch.push_back(id);
                 }
             }
-            if (_dynamic_index)
-                _locks[n].unlock();
+            // if (_dynamic_index)
+            //     _locks[n].unlock();
         }
 
         // Mark nodes visited

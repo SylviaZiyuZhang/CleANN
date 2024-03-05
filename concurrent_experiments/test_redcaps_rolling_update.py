@@ -93,7 +93,7 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
     # Then, iteratively filter out ids that are too small to mimic the deletion
     for b in range(0, len(data), batch_size):
         for j, q in enumerate(queries):
-            # all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
+            all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
             if len(all_neighbors[j]) < k:
                 all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
                 continue
@@ -322,18 +322,24 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
-def small_batch_gradual_update_experiment(data, queries):
+def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
     # np.random.shuffle(data)
     size = 5000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
     update_batch_size = 50
     n_update_batch = 100
+    n_queries = len(queries)
 
     indexing_plan = [(0, i) for i in range(size)]
     initial_lookup = [(1, i) for i in range(len(queries))]
     
     print(len(data), size)
+
+    if randomize_queries:
+        sampled_vectors = my_array_2d[np.random.choice(my_array_2d.shape[0], m, replace=False)]
+        queries = data[np.random.choice(data.shape[0], n_queries, replace=False)] + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
+
     plans = [("Indexing", data, queries, indexing_plan, None)]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
         path=None,
@@ -350,7 +356,7 @@ def small_batch_gradual_update_experiment(data, queries):
             delete_id = i + j
             insert_id = delete_id + size
             update_plan.append((0, insert_id))
-            # update_plan.append((2, delete_id))
+            update_plan.append((2, delete_id))
         plans.append(("Update", data, queries, update_plan, None))
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
@@ -368,7 +374,8 @@ def small_batch_gradual_update_experiment(data, queries):
 
 
 # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
-data = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular.npy")
+data = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular.npy")
+np.random.shuffle(data)
 data = data[:10000]
-queries = np.load("/home/ubuntu/data/jae/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
+queries = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
 small_batch_gradual_update_experiment(data, queries)
