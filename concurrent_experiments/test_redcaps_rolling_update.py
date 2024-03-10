@@ -324,10 +324,10 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
 def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
     # np.random.shuffle(data)
-    size = 5000
+    size = 500000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
-    update_batch_size = 50
+    update_batch_size = 5000
     n_update_batch = 100
     n_queries = len(queries)
 
@@ -337,8 +337,8 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
     print(len(data), size)
 
     if randomize_queries:
-        sampled_vectors = my_array_2d[np.random.choice(my_array_2d.shape[0], m, replace=False)]
-        queries = data[np.random.choice(data.shape[0], n_queries, replace=False)] + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
+        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
+        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
     plans = [("Indexing", data, queries, indexing_plan, None)]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
@@ -367,15 +367,17 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
     # ============================== get static recall ==============================
     # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
     # reference updated recall exists
+    """
     for i in range(0, size, update_batch_size):
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
         get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
+    """
 
 
 # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
 data = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular.npy")
 np.random.shuffle(data)
-data = data[:10000]
+data = data[:1000000]
 queries = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
-small_batch_gradual_update_experiment(data, queries)
+small_batch_gradual_update_experiment(data, queries, False)

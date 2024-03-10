@@ -39,11 +39,11 @@ struct Neighbor
 class NeighborPriorityQueue
 {
   public:
-    NeighborPriorityQueue() : _size(0), _capacity(0), _cur(0), _relaxed_exploration_count(5)
+    NeighborPriorityQueue() : _size(0), _capacity(0), _cur(0), _relaxed_exploration_count(0)
     {
     }
 
-    explicit NeighborPriorityQueue(size_t capacity) : _size(0), _capacity(capacity), _cur(0), _relaxed_exploration_count(5), _data(capacity + 1)
+    explicit NeighborPriorityQueue(size_t capacity) : _size(0), _capacity(capacity), _cur(0), _relaxed_exploration_count(0), _data(capacity + 1)
     {
     }
 
@@ -54,12 +54,13 @@ class NeighborPriorityQueue
     // next item will be set to the lowest index of an uncheck item
     void insert(const Neighbor &nbr)
     {
-        float scaling_factor = _relaxed_exploration_count == 0 ? 1.0 : 0.95;
-        if (_data[_size - 1] < nbr && _relaxed_exploration_count > 0)
-            _relaxed_exploration_count --;
+        float scaling_factor = _relaxed_exploration_count > 20 ? 1.0 : 0.95;
+        // if (_data[_size - 1] < nbr)
+        //    _relaxed_exploration_count ++;
         
         // TODO: This Neighbor comparison is done with operator overload
-        if (_size == _capacity && _data[_size - 1].distance < nbr.distance * scaling_factor)
+        // if (_size == _capacity && _data[_size - 1].distance < nbr.distance * scaling_factor)
+        if (_size == _capacity && _data[_size - 1]< nbr)
         {
             return;
         }
@@ -147,6 +148,7 @@ class NeighborPriorityQueue
     {
         _size = 0;
         _cur = 0;
+        _relaxed_exploration_count = 0; // 03/05/2024: This is to try what relaxed BFS does to the query recall
     }
 
   private:
