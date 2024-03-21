@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license.
 
+#include <chrono>
 #include <string>
 
 #include <pybind11/pybind11.h>
@@ -103,14 +104,17 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
                       const py::array_t<float, py::array::c_style | py::array::forcecast> &data,
                       const py::array_t<float, py::array::c_style | py::array::forcecast> &queries,
                       std::vector<std::pair<size_t, size_t>> update_list, size_t query_k, size_t query_complexity,
-                      size_t num_threads)
+                      size_t num_threads, size_t consolidation_interval)
 {
+    // typedef std::chrono::high_resolution_clock Clock;
 
     omp_set_num_threads(num_threads);
+    omp_set_nested(1);
 
     size_t num_queries = queries.shape()[0];
     py::array_t<diskannpy::DynamicIdType> ids({num_queries, query_k});
     py::array_t<float> dists({num_queries, query_k});
+    // py::array_t<unsigned int> latencies({update_list.size()});
 
     size_t update_count = 0;
 #pragma omp parallel for schedule(dynamic, 1)
@@ -126,26 +130,41 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
             // std::cout << "Inserting " << update_id << "->" << data.size() << std::endl;
             auto id = update_id + 1;
             index._index.insert_point(data.data(update_id), id);
+            // latencies.mutable_at(update_id) = 0;
         }
         else if (update_type == 1) // query
         {
+
             std::vector<float *> empty_vector;
+            // auto search_start = Clock::now();
             index._index.search_with_tags(queries.data(update_id), query_k, query_complexity,
                                           ids.mutable_data(update_id), dists.mutable_data(update_id), empty_vector);
+            // unsigned int time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_start.time_since_epoch()).count();
             // Fix ids
             for (size_t i = 0; i < query_k; i++)
             {
                 ids.mutable_data(update_id)[i]--;
             }
+            // Record latency
+            // latencies.mutable_at(update_id) = time_ms;
+            if (consolidation_interval > 0 && update_id == 0)
+                index.consolidate_delete();
         }
         else if (update_type == 2) // delete
         {
             index.mark_deleted(update_id + 1);
-            // if (update_id % 500 == 0)
-            //     index.consolidate_delete();
+            // latencies.mutable_at(update_id) = 0;
+            //if (consolidation_interval > 0 && update_id % consolidation_interval == 0) {
+                // auto consolidate_start = Clock::now();
+                //index.consolidate_delete();
+                // unsigned int time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(consolidate_start.time_since_epoch()).count();
+                // latencies.mutable_at(update_id) = time_ms;
+            //} // else
+                // latencies.mutable_at(update_id) = 0;
         }
     }
 
+    // return std::make_tuple(ids, dists, latencies);
     return std::make_pair(ids, dists);
 }
 
@@ -184,7 +203,7 @@ PYBIND11_MODULE(_diskannpy, m)
     add_variant<int8_t>(m, Int8Variant);
 
     m.def("run_dynamic_test", &run_dynamic_test, "index"_a, "data"_a, "queries"_a, "updates"_a, "query_k"_a,
-          "query_complexity"_a, "num_threads"_a);
+          "query_complexity"_a, "num_threads"_a, "consolidation_interval"_a);
 
     py::enum_<diskann::Metric>(m, "Metric")
         .value("L2", diskann::Metric::L2)

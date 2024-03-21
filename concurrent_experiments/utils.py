@@ -3,6 +3,7 @@ import os
 import time
 import h5py
 import numpy as np
+import matplotlib.pyplot as plt
 
 query_k = 10
 alpha = 1.2
@@ -77,7 +78,7 @@ def parse_ann_benchmarks_hdf5(data_path):
 
 
 # plans should be a list of pairs of the form (plan_name, data, queries, update_list, Optional[ground_truth])
-def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8], distance_metric="l2"):
+def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="trial", threads=[8], distance_metric="l2"):
     time_keys = [plan[0] for plan in plans] + ["Total"]
     all_times = {time_key: [] for time_key in time_keys}
     recall_keys = [plan[0] for plan in plans] + ["Recall"]
@@ -94,8 +95,12 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
             complexity=build_complexity,
             graph_degree=graph_degree,
         )
-        
 
+        all_recalls_list = []
+        all_latencies_list = []
+        plan_names_list = []
+        plan_ids_list = []
+        cur_plan = 0
         for plan_name, data, queries, update_list, optional_gt in plans:
             # print("Starting "+ plan_name)
             start_plan_time = time.time()
@@ -110,7 +115,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
                     actual_update_list.append((it[0], len(actual_queries) - 1))
                 else:
                     actual_update_list.append(it)
-
+            
+            consolidate = 1 if cur_plan % 20 == 0 else 0
             results = dynamic_test(
                 dynamic_index._index,
                 data,
@@ -121,6 +127,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
                 query_k=query_k,
                 query_complexity=query_complexity,
                 num_threads=num_threads,
+                consolidation_interval=consolidate,
             )
             # print("Finished plan", plan_name)
             if optional_gt is not None:
@@ -141,18 +148,27 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
                                 raise ex
                         search_count += 1
             recall = -1 if search_count == 0 else (recall_count / (search_count * query_k))
-            all_times[plan_name].append(time.time() - start_plan_time)
+            plan_total_time = time.time() - start_plan_time
+            all_times[plan_name].append(plan_total_time)
             all_recalls[plan_name].append(recall)
+            # Ths following are for generating plots
+            all_recalls_list.append(recall)
+            all_latencies_list.append(plan_total_time / len(update_list))
+            plan_ids_list.append(cur_plan)
+            plan_names_list.append(plan_name)
+            cur_plan += 1
 
         all_times["Total"].append(time.time() - start_overall_time)
 
         new_times = [all_times[time_key][-1] for time_key in time_keys]
         firsts_times = [all_times[time_key][0] for time_key in time_keys]
         speedups = [f / n for n, f in zip(new_times, firsts_times)]
+        
         print(
             f"Recall with {num_threads} threads: " + str(list(zip(recall_keys, all_recalls)))
         )
         print(all_recalls)
+        
         print(
             f"Times with {num_threads} threads: " + str(list(zip(time_keys, new_times)))
         )
@@ -160,3 +176,54 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, threads=[1, 2, 4, 8],
             f"Speedups with {num_threads} threads: "
             + str(list(zip(time_keys, speedups)))
         )
+
+        start_plotting_index = -1
+        # Amputate the recalls
+        for i, it in enumerate(all_recalls_list):
+            if start_plotting_index == -1 and it != -1: # Only start plotting when recall values are meaningful
+                start_plotting_index = i
+            if it == -1 and i > 0 and all_recalls_list[i-1] != -1:
+                all_recalls_list[i] = all_recalls_list[i-1] # amputate invalid value with the previous value
+        
+        for i, it in enumerate(all_latencies_list):
+            if plan_names_list[i] == "Update":
+                all_latencies_list[i] = all_latencies_list[i+1]
+        recalls_to_plot = all_recalls_list[start_plotting_index:]
+        latencies_to_plot = all_latencies_list[start_plotting_index:]
+        plan_ids_to_plot = plan_ids_list[start_plotting_index:]
+
+        if num_threads == 8:
+            #plt.plot(plan_ids_to_plot, recalls_to_plot, label='Recall 10@10')
+
+            fig, ax1 = plt.subplots()
+            color = 'tab:red'
+            ax1.set_xlabel('batch')
+            ax1.set_ylabel('Recall 10@10', color=color)
+            line1, = ax1.plot(plan_ids_to_plot, recalls_to_plot, color=color, label='Recall 10@10')
+            ax1.tick_params(axis='y', labelcolor=color)
+
+            ax2 = ax1.twinx()
+            color = 'tab:blue'
+            ax2.set_ylabel('Throughput', color=color)
+            line2, = ax2.plot(plan_ids_to_plot, latencies_to_plot, color=color, label='Latency')
+            ax2.tick_params(axis='y', labelcolor=color)
+
+            # Combine the legend handles and labels from both axes
+            lines = [line1, line2]
+            labels = [line.get_label() for line in lines]
+
+            # Display legend on the first axis
+            ax1.legend(lines, labels, loc='upper left')
+
+            fig.tight_layout()
+            plt.title('Recall and Latency Plot on Consolidation')
+            plt.savefig(experiment_name + 'recall_latency_plot.png')
+            plt.show()
+            """
+            plt.plot(plan_ids_to_plot, latencies_to_plot, label='latency per query')
+            plt.xlabel('Batch')
+            plt.title('Recall and latency plot on consolidation')
+            plt.legend()
+            plt.savefig(experiment_name+'recall_latency_plot.png')
+            """
+        # plt.show()

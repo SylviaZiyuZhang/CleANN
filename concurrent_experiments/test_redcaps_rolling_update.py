@@ -12,6 +12,18 @@ from pathlib import Path
 #path = Path('~/data/tmp/').expanduser()
 #path.mkdir(parents=True, exist_ok=True)
 
+def calculate_medoid(data):
+    # This selects the vector from the dataset that is the medoid
+    # (instead of calculating the medoid in the spatial sense)
+    distance_matrix = np.zeros((len(data), len(data)))
+    for i in range(len(data)):
+        for j in range(i, len(data)):
+            dist = np.linalg.norm(data[j]-data[i])
+            distance_matrix[i][j] = dist
+            distance_matrix[j][i] = dist
+    medoid_id = np.argmin(distance_matrix.sum(axis=0))
+    return data[medoid_id]
+
 def brute_force_knn(data, start, end, query, k=10, return_set=False):
     """
     data: dataset
@@ -134,7 +146,7 @@ def get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_nam
         for j, future in enumerate(concurrent.futures.as_completed(futures)):
             all_neighbor_ids[j], all_dists[j] = future.result()
 
-    return all_neighbor_ids, all_dists
+    return np.array(all_neighbor_ids), np.array(all_dists)
 
 def load_or_create_test_data(path, size=100, dimension=10, n_queries=10, gt_k=100):
     """
@@ -324,10 +336,10 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
 def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
     # np.random.shuffle(data)
-    size = 500000
+    size = 50000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
-    update_batch_size = 5000
+    update_batch_size = 500
     n_update_batch = 100
     n_queries = len(queries)
 
@@ -362,7 +374,7 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         gt_dists =all_gt_dists[1 + i // update_batch_size]
         plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
 
-    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
+    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data), experiment_name="redcaps_100000_consolidate_10perc_8_threads_more_correct_nested_omp_")
 
     # ============================== get static recall ==============================
     # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
@@ -374,10 +386,33 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
     """
 
+def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False):
+    medoid_vector = calculate_medoid(data)
+    medoid_distances = [np.linalg.norm(medoid_vector - v) for v in data]
+    # sort the data from the furthest to the closest to the medoid
+    sorted_data = [v for _, v in sorted(zip(medoid_distances, data), key=lambda pair: -pair[0])]
+    #get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_name="sift", size=10000):
+    indexing_plan = [(0, i) for i in range(len(data))]
+    lookup = [(1, i) for i in range(len(queries))]
+    plans = [("Indexing", np.array(sorted_data), queries, indexing_plan, None)]
+    gt_neighbors, gt_dists = get_ground_truth_batch(sorted_data, 0, len(sorted_data), queries, k=10, dataset_name="sift", size=len(data))
+    plans.append(("Search", np.array(sorted_data), queries, lookup, gt_neighbors))
+    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data), experiment_name="sorted_adversarial_1000_")
+    indexing_plan = [(0, i) for i in range(len(data))]
+    lookup = [(1, i) for i in range(len(queries))]
+    plans = [("Indexing", data, queries, indexing_plan, None)]
+    gt_neighbors2, gt_dists2 = get_ground_truth_batch(data, 0, len(data), queries, k=10, dataset_name="sift", size=len(data))
+    print(gt_neighbors[0], gt_neighbors2[0])
+    print(gt_dists[0], gt_dists2[0])
+    plans.append(("Search", data, queries, lookup, gt_neighbors2))
+    run_dynamic_test(plans, gt_neighbors2, gt_dists2, max_vectors=len(data), experiment_name="sorted_adversarial_1000_baseline_")
+
+
 
 # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
 data = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular.npy")
 np.random.shuffle(data)
-data = data[:1000000]
+data = data[:100000]
 queries = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
+print(len(queries))
 small_batch_gradual_update_experiment(data, queries, False)
