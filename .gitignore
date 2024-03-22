@@ -390,8 +390,11 @@ compile_commands.json
 *.csv
 
 python/src/_diskannpy*.so
+<<<<<<< HEAD
 
 # Profiling results
 profile*
 oprofile*
 
+=======
+>>>>>>> build-with-data-binding
