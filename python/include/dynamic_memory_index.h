@@ -29,6 +29,9 @@ class DynamicMemoryIndex
                        bool concurrent_consolidation);
 
     void load(const std::string &index_path);
+    void build(const py::array_t<DT, py::array::c_style | py::array::forcecast> &data,
+      const size_t num_points_to_load,
+      const py::array_t<DynamicIdType, py::array::c_style | py::array::forcecast> &tags);
     int insert(const py::array_t<DT, py::array::c_style | py::array::forcecast> &vector, DynamicIdType id);
     py::array_t<int> batch_insert(py::array_t<DT, py::array::c_style | py::array::forcecast> &vectors,
                                   py::array_t<DynamicIdType, py::array::c_style | py::array::forcecast> &ids, int32_t num_inserts,

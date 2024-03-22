@@ -6,6 +6,8 @@
 
 #include "pybind11/numpy.h"
 
+#include<vector>
+
 namespace diskannpy
 {
 
@@ -70,6 +72,22 @@ template <class DT> void DynamicMemoryIndex<DT>::load(const std::string &index_p
         throw std::runtime_error("tags file not found at expected path: " + tags_file);
     }
     _index.load(index_path.c_str(), _write_parameters.num_threads, _initial_search_complexity);
+}
+
+template <class DT>
+void DynamicMemoryIndex<DT>::build(
+    const py::array_t<DT, py::array::c_style | py::array::forcecast> &data,
+    const size_t num_points_to_load,
+    const py::array_t<DynamicIdType, py::array::c_style | py::array::forcecast> &tags)
+{
+    // Accessing the data pointer and converting to the appropriate type
+    const DT* data_ptr = data.data();
+    
+    // Converting tags to std::vector<TagT>
+    std::vector<DynamicIdType> tags_vector(tags.data(), tags.data() + tags.size());
+
+    // Call the build function of the Index class
+    _index.build(data_ptr, num_points_to_load, tags_vector);
 }
 
 template <class DT>

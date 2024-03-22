@@ -78,6 +78,7 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
         .def("load", &diskannpy::DynamicMemoryIndex<T>::load, "index_path"_a)
         .def("batch_search", &diskannpy::DynamicMemoryIndex<T>::batch_search, "queries"_a, "num_queries"_a, "knn"_a,
              "complexity"_a, "num_threads"_a)
+        .def("build", &diskannpy::DynamicMemoryIndex<T>::build, "data"_a, "num_points_to_load"_a, "tags"_a)
         .def("batch_insert", &diskannpy::DynamicMemoryIndex<T>::batch_insert, "vectors"_a, "ids"_a, "num_inserts"_a,
              "num_threads"_a)
         .def("save", &diskannpy::DynamicMemoryIndex<T>::save, "save_path"_a = "", "compact_before_save"_a = false)

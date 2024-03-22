@@ -76,7 +76,7 @@ def parse_ann_benchmarks_hdf5(data_path):
 
 
 # plans should be a list of pairs of the form (plan_name, data, queries, update_list, Optional[ground_truth])
-def run_dynamic_test(plans, max_vectors, threads=[1, 2, 4, 8], distance_metric="l2"):
+def run_dynamic_test(plans, max_vectors, threads=[1, 2, 4, 8], distance_metric="l2", batch_build=False, batch_build_data=None, batch_build_tags=None):
     time_keys = [plan[0] for plan in plans] + ["Total"]
     all_times = {time_key: [] for time_key in time_keys}
 
@@ -91,6 +91,9 @@ def run_dynamic_test(plans, max_vectors, threads=[1, 2, 4, 8], distance_metric="
             complexity=build_complexity,
             graph_degree=graph_degree,
         )
+        if batch_build:
+            dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
+
 
         for plan_name, data, queries, update_list, optional_gt in plans:
             start_plan_time = time.time()
