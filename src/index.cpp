@@ -21,7 +21,12 @@
 #endif
 #include "index.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+
 #define MAX_POINTS_FOR_USING_BITSET 10000000
+
+const bool COMPRESS_DEBUG = false;
 
 namespace diskann
 {
@@ -1011,7 +1016,7 @@ template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::search_for_point_and_prune(int location, uint32_t Lindex,
                                                         std::vector<uint32_t> &pruned_list,
                                                         InMemQueryScratch<T> *scratch, bool use_filter,
-                                                        uint32_t filteredLindex)
+                                                        uint32_t filteredLindex, bool path_compress)
 {
     const std::vector<uint32_t> init_ids = get_init_ids();
     const std::vector<LabelT> unused_filter_label;
@@ -1079,16 +1084,89 @@ void Index<T, TagT, LabelT>::search_for_point_and_prune(int location, uint32_t L
         throw diskann::ANNException("ERROR: non-empty pruned_list passed", -1, __FUNCSIG__, __FILE__, __LINE__);
     }
 
-    prune_neighbors(location, pool, pruned_list, scratch);
+    prune_neighbors(location, pool, pruned_list, scratch, path_compress);
 
     assert(!pruned_list.empty());
     assert(_graph_store->get_total_points() == _max_points + _num_frozen_pts);
 }
 
+/*
+Add edges to achieve path compression
+*/
+template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::add_compression_edges(std::vector<uint32_t> &starts, std::vector<uint32_t> &ends,
+                                          InMemQueryScratch<T> *scratch)
+{
+    uint32_t range = _indexingRange;
+    // add reverse links from all the visited nodes to node n.
+    
+    assert(starts.size() == ends.size());
+    for (size_t i = 0; i < starts.size(); i++)
+    {
+        auto src = starts[i];
+        // des.loc is the loc of the neighbors of des
+        assert(src < _max_points + _num_frozen_pts);
+        // src_nb_pool contains the neighbors of the neighbors of src
+        std::vector<uint32_t> copy_of_neighbors;
+        bool prune_needed = false;
+        {
+            LockGuard guard(_locks[src]);
+            auto &src_nb_pool = _graph_store->get_neighbours(src);
+            if (std::find(src_nb_pool.begin(), src_nb_pool.end(), ends[i]) == src_nb_pool.end())
+            {
+                if (src_nb_pool.size() < (uint64_t)(defaults::GRAPH_SLACK_FACTOR * range))
+                {
+                    // des_pool.emplace_back(n);
+                    _graph_store->add_neighbour(src, ends[i]);
+                    prune_needed = false;
+                }
+                else
+                {
+                    copy_of_neighbors.reserve(src_nb_pool.size() + 1);
+                    copy_of_neighbors = src_nb_pool;
+                    copy_of_neighbors.push_back(ends[i]);
+                    prune_needed = true;
+                }
+            }
+        } // src lock is released by this point
+
+        if (prune_needed)
+        {
+            tsl::robin_set<uint32_t> dummy_visited(0);
+            std::vector<Neighbor> dummy_pool(0);
+
+            size_t reserveSize = (size_t)(std::ceil(1.05 * defaults::GRAPH_SLACK_FACTOR * range));
+            dummy_visited.reserve(reserveSize);
+            dummy_pool.reserve(reserveSize);
+
+            for (auto cur_nbr : copy_of_neighbors)
+            {
+                if (dummy_visited.find(cur_nbr) == dummy_visited.end() && cur_nbr != src)
+                {
+                    float dist = _data_store->get_distance(src, cur_nbr);
+                    dummy_pool.emplace_back(Neighbor(cur_nbr, dist));
+                    dummy_visited.insert(cur_nbr);
+                }
+            }
+            std::vector<uint32_t> new_out_neighbors;
+            prune_neighbors(src, dummy_pool, new_out_neighbors, scratch, false);
+            {
+                LockGuard guard(_locks[src]);
+
+                _graph_store->set_neighbours(src, new_out_neighbors);
+            }
+        }
+    }
+}
+
+
+/*
+Select the candidates for a new point to be connected to
+*/
 template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<Neighbor> &pool, const float alpha,
                                           const uint32_t degree, const uint32_t maxc, std::vector<uint32_t> &result,
-                                          InMemQueryScratch<T> *scratch,
+                                          InMemQueryScratch<T> *scratch, bool path_compress,
                                           const tsl::robin_set<uint32_t> *const delete_set_ptr)
 {
     if (pool.size() == 0)
@@ -1105,6 +1183,10 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
     occlude_factor.clear();
     // Initialize occlude_factor to pool.size() many 0.0f values for correctness
     occlude_factor.insert(occlude_factor.end(), pool.size(), 0.0f);
+    std::vector<uint32_t> compression_starts;
+    std::vector<uint32_t> compression_ends;
+    std::vector<uint32_t> occlude_skipped_points;
+    // result is occlude_connected_points
 
     float cur_alpha = 1;
     while (cur_alpha <= alpha && result.size() < degree)
@@ -1117,6 +1199,7 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
         {
             if (occlude_factor[iter - pool.begin()] > cur_alpha)
             {
+                occlude_skipped_points.push_back(iter->id);
                 continue;
             }
             // Set the entry to float::max so that is not considered again
@@ -1179,19 +1262,37 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
         }
         cur_alpha *= 1.2f;
     }
+
+    if (path_compress) {
+        size_t compression_i = 0;
+        while (compression_i < occlude_skipped_points.size() && compression_i < result.size() && compression_i < 3){
+            compression_starts.push_back(occlude_skipped_points[compression_i]);
+            compression_ends.push_back(result[result.size() - compression_i - 1]);
+            if (COMPRESS_DEBUG)
+                std::cout << "Adding compression edge " << occlude_skipped_points[compression_i] << " -> " << result[result.size() - compression_i - 1] << "for location " << location << std::endl;
+            compression_i++;
+        }
+        //if (COMPRESS_DEBUG)
+        std::cout << "Starting to compress location " << location << std::endl;
+        add_compression_edges(compression_starts, compression_ends, scratch);
+        //if (COMPRESS_DEBUG)
+        std::cout << "Finished compress location " << location << std::endl;
+    }
 }
 
 template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::prune_neighbors(const uint32_t location, std::vector<Neighbor> &pool,
-                                             std::vector<uint32_t> &pruned_list, InMemQueryScratch<T> *scratch)
+                                             std::vector<uint32_t> &pruned_list, InMemQueryScratch<T> *scratch,
+                                             bool path_compress)
 {
-    prune_neighbors(location, pool, _indexingRange, _indexingMaxC, _indexingAlpha, pruned_list, scratch);
+    prune_neighbors(location, pool, _indexingRange, _indexingMaxC, _indexingAlpha, pruned_list, scratch, path_compress);
 }
 
 template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::prune_neighbors(const uint32_t location, std::vector<Neighbor> &pool, const uint32_t range,
                                              const uint32_t max_candidate_size, const float alpha,
-                                             std::vector<uint32_t> &pruned_list, InMemQueryScratch<T> *scratch)
+                                             std::vector<uint32_t> &pruned_list, InMemQueryScratch<T> *scratch,
+                                             bool path_compress)
 {
     if (pool.size() == 0)
     {
@@ -1212,7 +1313,7 @@ void Index<T, TagT, LabelT>::prune_neighbors(const uint32_t location, std::vecto
     pruned_list.clear();
     pruned_list.reserve(range);
 
-    occlude_list(location, pool, alpha, range, max_candidate_size, pruned_list, scratch);
+    occlude_list(location, pool, alpha, range, max_candidate_size, pruned_list, scratch, path_compress);
     assert(pruned_list.size() <= range);
 
     if (_saturate_graph && alpha > 1)
@@ -1228,6 +1329,10 @@ void Index<T, TagT, LabelT>::prune_neighbors(const uint32_t location, std::vecto
     }
 }
 
+
+/*
+Link points in pruned_list to n and prune them if necessary
+*/
 template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::inter_insert(uint32_t n, std::vector<uint32_t> &pruned_list, const uint32_t range,
                                           InMemQueryScratch<T> *scratch)
@@ -1283,7 +1388,7 @@ void Index<T, TagT, LabelT>::inter_insert(uint32_t n, std::vector<uint32_t> &pru
                 }
             }
             std::vector<uint32_t> new_out_neighbors;
-            prune_neighbors(des, dummy_pool, new_out_neighbors, scratch);
+            prune_neighbors(des, dummy_pool, new_out_neighbors, scratch, true);
             {
                 LockGuard guard(_locks[des]);
 
@@ -1293,6 +1398,9 @@ void Index<T, TagT, LabelT>::inter_insert(uint32_t n, std::vector<uint32_t> &pru
     }
 }
 
+/*
+Link points in pruned_list to n and prune them if necessary
+*/
 template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::inter_insert(uint32_t n, std::vector<uint32_t> &pruned_list, InMemQueryScratch<T> *scratch)
 {
@@ -1340,11 +1448,11 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
         std::vector<uint32_t> pruned_list;
         if (_filtered_index)
         {
-            search_for_point_and_prune(node, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize);
+            search_for_point_and_prune(node, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, false);
         }
         else
         {
-            search_for_point_and_prune(node, _indexingQueueSize, pruned_list, scratch);
+            search_for_point_and_prune(node, _indexingQueueSize, pruned_list, scratch, false);
         }
         assert(pruned_list.size() > 0);
 
@@ -1390,7 +1498,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
                     dummy_visited.insert(cur_nbr);
                 }
             }
-            prune_neighbors(node, dummy_pool, new_out_neighbors, scratch);
+            prune_neighbors(node, dummy_pool, new_out_neighbors, scratch, true);
 
             _graph_store->clear_neighbours((location_t)node);
             _graph_store->set_neighbours((location_t)node, new_out_neighbors);
@@ -1436,7 +1544,7 @@ void Index<T, TagT, LabelT>::prune_all_neighbors(const uint32_t max_degree, cons
                     }
                 }
 
-                prune_neighbors((uint32_t)node, dummy_pool, range, maxc, alpha, new_out_neighbors, scratch);
+                prune_neighbors((uint32_t)node, dummy_pool, range, maxc, alpha, new_out_neighbors, scratch, false);
                 _graph_store->clear_neighbours((location_t)node);
                 _graph_store->set_neighbours((location_t)node, new_out_neighbors);
             }
@@ -2395,7 +2503,7 @@ inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_set<uint32_t
             }
             std::sort(expanded_nghrs_vec.begin(), expanded_nghrs_vec.end());
             std::vector<uint32_t> &occlude_list_output = scratch->occlude_list_output();
-            occlude_list((uint32_t)loc, expanded_nghrs_vec, alpha, range, maxc, occlude_list_output, scratch,
+            occlude_list((uint32_t)loc, expanded_nghrs_vec, alpha, range, maxc, occlude_list_output, scratch, false,
                          &old_delete_set);
             std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
             _graph_store->set_neighbours((location_t)loc, occlude_list_output);
@@ -2899,7 +3007,6 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag)
 template <typename T, typename TagT, typename LabelT>
 int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const std::vector<LabelT> &labels)
 {
-    // std::cout << "Inserting point " << tag << std::endl; 
     assert(_has_built);
     if (tag == static_cast<TagT>(0))
     {
@@ -2912,6 +3019,7 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     std::shared_lock<std::shared_timed_mutex> shared_ul(_update_lock);
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+    // std::cout << "Inserting point " << tag << std::endl; 
 
     auto location = reserve_location();
     if (_filtered_index)
@@ -3012,20 +3120,23 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     _data_store->set_vector(location, point); // update datastore
 
     // Find and add appropriate graph edges
+    if (COMPRESS_DEBUG)
+        std::cout << "Store point, adding edges for " << tag << std::endl;
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     auto scratch = manager.scratch_space();
     std::vector<uint32_t> pruned_list; // it is the set best candidates to connect to this point
     if (_filtered_index)
     {
         // when filtered the best_candidates will share the same label ( label_present > distance)
-        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize);
+        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, true);
     }
     else
     {
-        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch);
+        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, false);
     }
     assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)
-
+    if (COMPRESS_DEBUG)
+        std::cout << "Finished search_for_point_and_prune for " << tag << std::endl;
     {
         std::shared_lock<std::shared_timed_mutex> tlock(_tag_lock, std::defer_lock);
         if (_conc_consolidate)
@@ -3048,7 +3159,8 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
         if (_conc_consolidate)
             tlock.unlock();
     }
-
+    if (COMPRESS_DEBUG)
+        std::cout << "Added edges to graph store, starting inter insert for " << tag << std::endl;
     inter_insert(location, pruned_list, scratch);
 
     return 0;

@@ -254,24 +254,28 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
 
     void search_for_point_and_prune(int location, uint32_t Lindex, std::vector<uint32_t> &pruned_list,
                                     InMemQueryScratch<T> *scratch, bool use_filter = false,
-                                    uint32_t filteredLindex = 0);
+                                    uint32_t filteredLindex = 0, bool path_compress = false);
 
     void prune_neighbors(const uint32_t location, std::vector<Neighbor> &pool, std::vector<uint32_t> &pruned_list,
-                         InMemQueryScratch<T> *scratch);
+                         InMemQueryScratch<T> *scratch, bool path_compress);
 
     void prune_neighbors(const uint32_t location, std::vector<Neighbor> &pool, const uint32_t range,
                          const uint32_t max_candidate_size, const float alpha, std::vector<uint32_t> &pruned_list,
-                         InMemQueryScratch<T> *scratch);
+                         InMemQueryScratch<T> *scratch, bool path_compress);
 
     // Prunes candidates in @pool to a shorter list @result
     // @pool must be sorted before calling
     void occlude_list(const uint32_t location, std::vector<Neighbor> &pool, const float alpha, const uint32_t degree,
-                      const uint32_t maxc, std::vector<uint32_t> &result, InMemQueryScratch<T> *scratch,
+                      const uint32_t maxc, std::vector<uint32_t> &result, InMemQueryScratch<T> *scratch, bool path_compress,
                       const tsl::robin_set<uint32_t> *const delete_set_ptr = nullptr);
 
     // add reverse links from all the visited nodes to node n.
     void inter_insert(uint32_t n, std::vector<uint32_t> &pruned_list, const uint32_t range,
                       InMemQueryScratch<T> *scratch);
+    
+    // add compression links from each pair of starts[i] to ends[i].
+    void add_compression_edges(std::vector<uint32_t> &starts, std::vector<uint32_t> &ends,
+                                          InMemQueryScratch<T> *scratch);
 
     void inter_insert(uint32_t n, std::vector<uint32_t> &pruned_list, InMemQueryScratch<T> *scratch);
 

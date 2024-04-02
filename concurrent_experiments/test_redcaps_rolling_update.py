@@ -336,10 +336,10 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
 def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
     # np.random.shuffle(data)
-    size = 50000
+    size = 5000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
-    update_batch_size = 500
+    update_batch_size = 50
     n_update_batch = 100
     n_queries = len(queries)
 
@@ -353,6 +353,7 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
     plans = [("Indexing", data, queries, indexing_plan, None)]
+    # plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
         path=None,
         data=data[:size],
@@ -374,7 +375,16 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         gt_dists =all_gt_dists[1 + i // update_batch_size]
         plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
 
-    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data), experiment_name="redcaps_100000_consolidate_10perc_8_threads_more_correct_nested_omp_")
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name="redcaps_10000_try_compression_3"
+        #batch_build=True,
+        #batch_build_data=data[:5000],
+        #batch_build_tags=[i for i in range(1, 5001)]
+        )
 
     # ============================== get static recall ==============================
     # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
@@ -412,7 +422,7 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
 # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
 data = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular.npy")
 np.random.shuffle(data)
-data = data[:100000]
+data = data[:10000]
 queries = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
 print(len(queries))
 small_batch_gradual_update_experiment(data, queries, False)
