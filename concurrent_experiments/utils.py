@@ -4,6 +4,7 @@ import time
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
+import json
 
 query_k = 10
 alpha = 1.2
@@ -96,11 +97,15 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
             graph_degree=graph_degree,
         )
         if batch_build:
+            assert(len(batch_build_data) == len(batch_build_tags))
             dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
+            print("Finished building")
+            print("huh?")
 
 
         all_recalls_list = []
         all_latencies_list = []
+        all_num_updates_list = []
         plan_names_list = []
         plan_ids_list = []
         cur_plan = 0
@@ -119,7 +124,9 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
                 else:
                     actual_update_list.append(it)
             
-            consolidate = 1 if cur_plan % 20 == 0 else 0
+            # consolidate = len(update_list) - 1 if cur_plan % 2 == 1 else 0
+            consolidate = 1 if plan_name == "Consolidate" else 0
+            # print("consolidate: ", consolidate)
             results = dynamic_test(
                 dynamic_index._index,
                 data,
@@ -156,7 +163,9 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
             all_recalls[plan_name].append(recall)
             # Ths following are for generating plots
             all_recalls_list.append(recall)
-            all_latencies_list.append(plan_total_time / len(update_list))
+            num_updates = len(update_list) if len(update_list) > 0 else 1
+            all_num_updates_list.append(num_updates)
+            all_latencies_list.append(plan_total_time / num_updates)
             plan_ids_list.append(cur_plan)
             plan_names_list.append(plan_name)
             cur_plan += 1
@@ -166,6 +175,18 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         new_times = [all_times[time_key][-1] for time_key in time_keys]
         firsts_times = [all_times[time_key][0] for time_key in time_keys]
         speedups = [f / n for n, f in zip(new_times, firsts_times)]
+
+        result = {
+            "num_threads": num_threads,
+            "plan_names": plan_names_list,
+            "recalls": all_recalls_list,
+            "latencies": all_latencies_list,
+            "num_updates": all_num_updates_list,
+            "new_times": new_times,
+            "speedups": speedups
+        }
+        with open(experiment_name+'_result_data.json', 'w') as f:
+            json.dump(result, f)
         
         print(
             f"Recall with {num_threads} threads: " + str(list(zip(recall_keys, all_recalls)))
@@ -194,7 +215,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         recalls_to_plot = all_recalls_list[start_plotting_index:]
         latencies_to_plot = all_latencies_list[start_plotting_index:]
         plan_ids_to_plot = plan_ids_list[start_plotting_index:]
-
+        """
         if num_threads == 8:
             #plt.plot(plan_ids_to_plot, recalls_to_plot, label='Recall 10@10')
 
@@ -222,11 +243,12 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
             plt.title('Recall and Latency Plot on Consolidation')
             plt.savefig(experiment_name + 'recall_latency_plot.png')
             plt.show()
-            """
-            plt.plot(plan_ids_to_plot, latencies_to_plot, label='latency per query')
-            plt.xlabel('Batch')
-            plt.title('Recall and latency plot on consolidation')
-            plt.legend()
-            plt.savefig(experiment_name+'recall_latency_plot.png')
-            """
+            
+            #plt.plot(plan_ids_to_plot, latencies_to_plot, label='latency per query')
+            #plt.xlabel('Batch')
+            #plt.title('Recall and latency plot on consolidation')
+            #plt.legend()
+            #plt.savefig(experiment_name+'recall_latency_plot.png')
+            
         # plt.show()
+        """
