@@ -28,6 +28,10 @@
 
 namespace diskann
 {
+struct EdgeAnalyticsInfo {
+    float avg_traversal_depth;
+    size_t num_used;
+};
 
 inline double estimate_ram_usage(size_t size, uint32_t dim, uint32_t datasize, uint32_t degree)
 {
@@ -66,6 +70,8 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
 
     // Saves graph, data, metadata and associated tags.
     DISKANN_DLLEXPORT void save(const char *filename, bool compact_before_save = false);
+    // Saves analytics
+    DISKANN_DLLEXPORT void save_edge_analytics(const char *filename);
 
     // Load functions
 #ifdef EXEC_ENV_OLS
@@ -316,6 +322,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     DISKANN_DLLEXPORT size_t save_data(std::string filename);
     DISKANN_DLLEXPORT size_t save_tags(std::string filename);
     DISKANN_DLLEXPORT size_t save_delete_list(const std::string &filename);
+
 #ifdef EXEC_ENV_OLS
     DISKANN_DLLEXPORT size_t load_graph(AlignedFileReader &reader, size_t expected_num_points);
     DISKANN_DLLEXPORT size_t load_data(AlignedFileReader &reader);
@@ -438,5 +445,8 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     std::vector<non_recursive_mutex> _locks;
 
     static const float INDEX_GROWTH_FACTOR;
+
+    // Analytics
+    std::unordered_map<TagT, std::unordered_map<TagT, EdgeAnalyticsInfo>> _edge_analytics;
 };
 } // namespace diskann

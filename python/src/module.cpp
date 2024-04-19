@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <string>
+#include <cstdlib>
 
 #include <pybind11/pybind11.h>
 #include <vector>
@@ -83,6 +84,7 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
         .def("batch_insert", &diskannpy::DynamicMemoryIndex<T>::batch_insert, "vectors"_a, "ids"_a, "num_inserts"_a,
              "num_threads"_a)
         .def("save", &diskannpy::DynamicMemoryIndex<T>::save, "save_path"_a = "", "compact_before_save"_a = false)
+        .def("save_edge_analytics", &diskannpy::DynamicMemoryIndex<T>::save_edge_analytics, "save_path"_a = "")
         .def("insert", &diskannpy::DynamicMemoryIndex<T>::insert, "vector"_a, "id"_a)
         .def("mark_deleted", &diskannpy::DynamicMemoryIndex<T>::mark_deleted, "id"_a)
         .def("consolidate_delete", &diskannpy::DynamicMemoryIndex<T>::consolidate_delete)
@@ -105,12 +107,12 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
                       const py::array_t<float, py::array::c_style | py::array::forcecast> &data,
                       const py::array_t<float, py::array::c_style | py::array::forcecast> &queries,
                       std::vector<std::pair<size_t, size_t>> update_list, size_t query_k, size_t query_complexity,
-                      size_t num_threads, size_t consolidation_interval)
+                      size_t num_threads, size_t consolidation_interval, size_t plan_id)
 {
     // typedef std::chrono::high_resolution_clock Clock;
 
     omp_set_num_threads(num_threads);
-    omp_set_nested(1);
+    // omp_set_nested(1);
 
     size_t num_queries = queries.shape()[0];
     py::array_t<diskannpy::DynamicIdType> ids({num_queries, query_k});
@@ -118,6 +120,10 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
     // py::array_t<unsigned int> latencies({update_list.size()});
 
     size_t update_count = 0;
+    if (update_list.size() == 0 && consolidation_interval > 0) {
+        std::cout << "Consolidating?" << std::endl;
+        index.consolidate_delete();
+    }
 #pragma omp parallel for schedule(dynamic, 1)
     for (size_t for_openmp = 0; for_openmp < update_list.size(); for_openmp++)
     {
@@ -146,21 +152,26 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
             {
                 ids.mutable_data(update_id)[i]--;
             }
+            if (update_id == update_list.size() - 1 && plan_id % 20 == 0) {
+                char filename[50];
+                sprintf(filename, "edge_analytics_%zu.csv", plan_id);
+                index._index.save_edge_analytics(filename);
+            }
             // Record latency
             // latencies.mutable_at(update_id) = time_ms;
-            if (consolidation_interval > 0 && update_id == 0)
-                index.consolidate_delete();
+            // if (consolidation_interval > 0 && update_id == 0)
+            //     index.consolidate_delete();
         }
         else if (update_type == 2) // delete
         {
             index.mark_deleted(update_id + 1);
             // latencies.mutable_at(update_id) = 0;
-            //if (consolidation_interval > 0 && update_id % consolidation_interval == 0) {
+            // if (consolidation_interval > 0 && update_id % consolidation_interval == 0) {
                 // auto consolidate_start = Clock::now();
-                //index.consolidate_delete();
-                // unsigned int time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(consolidate_start.time_since_epoch()).count();
+                // index.consolidate_delete();
+                //unsigned int time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(consolidate_start.time_since_epoch()).count();
                 // latencies.mutable_at(update_id) = time_ms;
-            //} // else
+            // } // else
                 // latencies.mutable_at(update_id) = 0;
         }
     }
@@ -204,7 +215,7 @@ PYBIND11_MODULE(_diskannpy, m)
     add_variant<int8_t>(m, Int8Variant);
 
     m.def("run_dynamic_test", &run_dynamic_test, "index"_a, "data"_a, "queries"_a, "updates"_a, "query_k"_a,
-          "query_complexity"_a, "num_threads"_a, "consolidation_interval"_a);
+          "query_complexity"_a, "num_threads"_a, "consolidation_interval"_a, "plan_id"_a);
 
     py::enum_<diskann::Metric>(m, "Metric")
         .value("L2", diskann::Metric::L2)

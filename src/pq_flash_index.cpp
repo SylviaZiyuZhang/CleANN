@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license.
 
+// TODO (SylviaZiyuZhang): FIXME - edge analytics does not work for this
+
 #include "common_includes.h"
 
 #include "timer.h"
@@ -1391,7 +1393,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     }
 
     compute_dists(&best_medoid, 1, dist_scratch);
-    retset.insert(Neighbor(best_medoid, dist_scratch[0]));
+    retset.insert(Neighbor(best_medoid, dist_scratch[0]), best_medoid);
     visited.insert(best_medoid);
 
     uint32_t cmps = 0;
@@ -1420,7 +1422,8 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         uint32_t num_seen = 0;
         while (retset.has_unexpanded_node() && frontier.size() < beam_width && num_seen < beam_width)
         {
-            auto nbr = retset.closest_unexpanded();
+            auto nbr_info = retset.closest_unexpanded();
+            auto nbr = nbr_info.first;
             num_seen++;
             auto iter = _nhood_cache.find(nbr.id);
             if (iter != _nhood_cache.end())
@@ -1523,7 +1526,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                     cmps++;
                     float dist = dist_scratch[m];
                     Neighbor nn(id, dist);
-                    retset.insert(nn);
+                    retset.insert(nn, 0);
                 }
             }
         }
@@ -1591,7 +1594,7 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
                     }
 
                     Neighbor nn(id, dist);
-                    retset.insert(nn);
+                    retset.insert(nn, 0);
                 }
             }
 

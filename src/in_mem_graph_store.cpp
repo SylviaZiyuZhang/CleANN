@@ -239,4 +239,12 @@ uint32_t InMemGraphStore::get_max_observed_degree()
     return _max_observed_degree;
 }
 
+size_t InMemGraphStore::get_edge_count()
+{
+    size_t count = 0;
+    for (const auto& neighbors : _graph)
+        count += neighbors.size();
+    return count;
+}
+
 } // namespace diskann

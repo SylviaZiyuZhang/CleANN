@@ -42,6 +42,9 @@ class AbstractGraphStore
     // set during load
     virtual size_t get_max_range_of_graph() = 0;
 
+    // analytics
+    virtual size_t get_edge_count() = 0;
+
     // Total internal points _max_points + _num_frozen_points
     size_t get_total_points()
     {

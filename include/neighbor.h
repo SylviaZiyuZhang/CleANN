@@ -52,7 +52,7 @@ class NeighborPriorityQueue
     // set item or it has a greated distance than the final
     // item in the set. The set cursor that is used to pop() the
     // next item will be set to the lowest index of an uncheck item
-    void insert(const Neighbor &nbr)
+    void insert(const Neighbor &nbr, const unsigned predecessor_id=0)
     {
         float scaling_factor = _relaxed_exploration_count > 20 ? 1.0 : 0.95;
         // if (_data[_size - 1] < nbr)
@@ -87,8 +87,10 @@ class NeighborPriorityQueue
         if (lo < _capacity)
         {
             std::memmove(&_data[lo + 1], &_data[lo], (_size - lo) * sizeof(Neighbor));
+            std::memmove(&_predecessors[lo + 1], &_predecessors[lo], (_size - lo) * sizeof(unsigned));
         }
         _data[lo] = {nbr.id, nbr.distance};
+        _predecessors[lo] = predecessor_id;
         if (_size < _capacity)
         {
             _size++;
@@ -99,7 +101,7 @@ class NeighborPriorityQueue
         }
     }
 
-    Neighbor closest_unexpanded()
+    std::pair<Neighbor, unsigned> closest_unexpanded()
     {
         _data[_cur].expanded = true;
         size_t pre = _cur;
@@ -107,7 +109,7 @@ class NeighborPriorityQueue
         {
             _cur++;
         }
-        return _data[pre];
+        return std::make_pair(_data[pre], _predecessors[pre]);
     }
 
     bool has_unexpanded_node() const
@@ -130,6 +132,7 @@ class NeighborPriorityQueue
         if (capacity + 1 > _data.size())
         {
             _data.resize(capacity + 1);
+            _predecessors.resize(capacity + 1);
         }
         _capacity = capacity;
     }
@@ -154,6 +157,7 @@ class NeighborPriorityQueue
   private:
     size_t _size, _capacity, _cur, _relaxed_exploration_count;
     std::vector<Neighbor> _data;
+    std::vector<unsigned> _predecessors;
 };
 
 } // namespace diskann

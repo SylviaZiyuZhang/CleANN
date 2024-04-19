@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 #include <omp.h>
+#include <fstream>
 
 #include <type_traits>
 
@@ -25,6 +26,8 @@
 #include <stdlib.h>
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
+#define EDGE_ANALYTICS_ENABLED true
+#define PATH_COMPRESSION_ENABLED false
 
 const bool COMPRESS_DEBUG = false;
 
@@ -394,6 +397,26 @@ void Index<T, TagT, LabelT>::save(const char *filename, bool compact_before_save
     reposition_frozen_point_to_end();
 
     diskann::cout << "Time taken for save: " << timer.elapsed() / 1000000.0 << "s." << std::endl;
+}
+
+template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::save_edge_analytics(const char *filename)
+{
+    size_t num_used_edges = 0;
+    std::ofstream outfile(filename); // Open a file for writing
+
+    outfile << "Num Times Used, Average Traversal Depth\n";
+
+    for (const auto& arr_pair : _edge_analytics) {
+        for (const auto& entry_pair: arr_pair.second) {
+            num_used_edges ++;
+            outfile << entry_pair.second.num_used << ", " << entry_pair.second.avg_traversal_depth << std::endl;
+        }
+    }
+    outfile.close();
+    size_t num_total_edges = _graph_store->get_edge_count();
+    std::cout << "Total edges: " << num_total_edges << ", used edges: " << num_used_edges << std::endl;
+    return;
 }
 
 #ifdef EXEC_ENV_OLS
@@ -873,6 +896,11 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         diskann::pq_dist_lookup(pq_coord_scratch, ids.size(), this->_num_pq_chunks, pq_dists, dists_out);
     };
 
+    #if EDGE_ANALYTICS_ENABLED
+    // For analyzing the usage of edges
+    std::unordered_map<TagT, size_t> depth_record;
+    #endif
+
     // Initialize the candidate pool with starting points
     for (auto id : init_ids)
     {
@@ -910,7 +938,12 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                 distance = _data_store->get_distance(aligned_query, id);
             }
             Neighbor nn = Neighbor(id, distance);
-            best_L_nodes.insert(nn);
+            // TODO (SylviaZiyuZhang): FIXME - NeighborPriorityQueue is doing work for
+            // edge analytics. Fix here for performance sensitive experiments.
+            best_L_nodes.insert(nn, id);
+            #if EDGE_ANALYTICS_ENABLED
+            depth_record[id] = 0;
+            #endif
         }
     }
 
@@ -919,8 +952,31 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
     while (best_L_nodes.has_unexpanded_node())
     {
-        auto nbr = best_L_nodes.closest_unexpanded();
+        hops ++;
+        auto nbr_info = best_L_nodes.closest_unexpanded();
+        auto nbr = nbr_info.first;
+        auto pred_id = nbr_info.second;
         auto n = nbr.id;
+
+        #if EDGE_ANALYTICS_ENABLED
+        size_t pred_depth = depth_record[pred_id];
+        depth_record[n] = pred_depth + 1;
+        if (search_invocation) {
+            if (_edge_analytics.find(pred_id) == _edge_analytics.end()) {
+                _edge_analytics[pred_id] = std::unordered_map<TagT, EdgeAnalyticsInfo>();
+            }
+            if (_edge_analytics[pred_id].find(n) == _edge_analytics[pred_id].end()) {
+                _edge_analytics[pred_id][n] = EdgeAnalyticsInfo {float(pred_depth + 1), 1};
+            } else {
+                float depth = _edge_analytics[pred_id][n].avg_traversal_depth;
+                size_t n_use = _edge_analytics[pred_id][n].num_used;
+                _edge_analytics[pred_id][n] = EdgeAnalyticsInfo {
+                    (depth * n_use + float(pred_depth + 1))/(n_use + 1),
+                    n_use + 1
+                };
+            }
+        }
+        #endif
 
         // Add node to expanded nodes to create pool for prune later
         if (!search_invocation)
@@ -1006,7 +1062,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         // Insert <id, dist> pairs into the pool of candidates
         for (size_t m = 0; m < id_scratch.size(); ++m)
         {
-            best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]));
+            best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), n);
         }
     }
     return std::make_pair(hops, cmps);
@@ -1262,22 +1318,52 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
         }
         cur_alpha *= 1.2f;
     }
+    /*
+    if (location % 1000 == 0) {
+        std::cout << "Encountered node degrees and dists of " << location << std::endl;
+        for (auto iter = pool.begin(); iter != pool.end(); ++iter) {
+            LockGuard guard(_locks[iter->id]);
+            std::cout << _graph_store->get_neighbours(iter->id).size() << "| " << iter->distance << ", ";
+        }
+        std::cout << std::endl;
+        std::cout << "Candidate node degrees and dists of " << location << std::endl;
+        for (auto iter = result.begin(); iter != result.end(); ++iter) {
+            LockGuard guard(_locks[*iter]);
+            std::cout << _graph_store->get_neighbours(*iter).size() << "| " << _data_store->get_distance(*iter, location) << ", ";
+        }
+        std::cout << std::endl;
+    }
+    */
 
+    #if PATH_COMPRESSION_ENABLED
     if (path_compress) {
         size_t compression_i = 0;
-        while (compression_i < occlude_skipped_points.size() && compression_i < result.size() && compression_i < 3){
-            compression_starts.push_back(occlude_skipped_points[compression_i]);
-            compression_ends.push_back(result[result.size() - compression_i - 1]);
-            if (COMPRESS_DEBUG)
-                std::cout << "Adding compression edge " << occlude_skipped_points[compression_i] << " -> " << result[result.size() - compression_i - 1] << "for location " << location << std::endl;
+        //long jump compression strat
+        //while (compression_i < occlude_skipped_points.size() && compression_i < result.size() && compression_i < 3){
+        //    compression_starts.push_back(occlude_skipped_points[compression_i]);
+        //    compression_ends.push_back(result[result.size() - compression_i - 1]);
+        //    if (COMPRESS_DEBUG)
+        //        std::cout << "Adding compression edge " << occlude_skipped_points[compression_i] << " -> " << result[result.size() - compression_i - 1] << "for location " << location << std::endl;
+        //    compression_i++;
+        //}
+        
+        // while (compression_i < result.size() && compression_i < 4) {
+        while (compression_i < result.size() && compression_i < 4) {
+            size_t cur_idx = result.size() - compression_i - 1;
+            if (cur_idx >= 2) {
+                size_t earlier_idx = cur_idx - 2;
+                // Compress in both directions
+                compression_starts.push_back(result[cur_idx]);
+                compression_ends.push_back(result[earlier_idx]);
+                compression_ends.push_back(result[cur_idx]);
+                compression_starts.push_back(result[earlier_idx]);
+            }
             compression_i++;
         }
-        //if (COMPRESS_DEBUG)
-        std::cout << "Starting to compress location " << location << std::endl;
         add_compression_edges(compression_starts, compression_ends, scratch);
-        //if (COMPRESS_DEBUG)
-        std::cout << "Finished compress location " << location << std::endl;
     }
+    #endif
+    
 }
 
 template <typename T, typename TagT, typename LabelT>
@@ -1498,7 +1584,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
                     dummy_visited.insert(cur_nbr);
                 }
             }
-            prune_neighbors(node, dummy_pool, new_out_neighbors, scratch, true);
+            prune_neighbors(node, dummy_pool, new_out_neighbors, scratch, false);
 
             _graph_store->clear_neighbours((location_t)node);
             _graph_store->set_neighbours((location_t)node, new_out_neighbors);
@@ -1737,6 +1823,7 @@ void Index<T, TagT, LabelT>::build(const T *data, const size_t num_points_to_loa
     }
 
     build_with_data_populated(tags);
+    std::cout << "Finishing Index::build" << std::endl;
 }
 
 template <typename T, typename TagT, typename LabelT>
@@ -3463,7 +3550,9 @@ void Index<T, TagT, LabelT>::search_with_optimized_layout(const T *query, size_t
 
     while (retset.has_unexpanded_node())
     {
-        auto nbr = retset.closest_unexpanded();
+        auto nbr_info = retset.closest_unexpanded();
+        auto nbr = nbr_info.first;
+        auto predecessor_id = nbr_info.second;
         auto n = nbr.id;
         _mm_prefetch(_opt_graph + _node_size * n + _data_len, _MM_HINT_T0);
         neighbors = (uint32_t *)(_opt_graph + _node_size * n + _data_len);

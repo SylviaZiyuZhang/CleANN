@@ -132,6 +132,15 @@ template <class DT> void DynamicMemoryIndex<DT>::save(const std::string &save_pa
     _index.save(save_path.c_str(), compact_before_save);
 }
 
+template <class DT> void DynamicMemoryIndex<DT>::save_edge_analytics(const std::string &save_path)
+{
+    if (save_path.empty())
+    {
+        throw std::runtime_error("A save_path must be provided");
+    }
+    _index.save_edge_analytics(save_path.c_str());
+}
+
 template <class DT>
 NeighborsAndDistances<DynamicIdType> DynamicMemoryIndex<DT>::search(
     py::array_t<DT, py::array::c_style | py::array::forcecast> &query, const uint64_t knn, const uint64_t complexity)
