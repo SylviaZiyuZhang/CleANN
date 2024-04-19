@@ -131,9 +131,77 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
         all_results_dists.append(all_dists)
     
     if save:
+        np.save(path/'ids.npy', all_results_ids)
+        np.save(path/'dists.npy', all_results_dists)
+    return all_results_ids, all_results_dists
+
+
+def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10):
+    if path is not None:
+        return np.load(path/'ids.npy'), np.load(path/'dists.npy')
+    path = Path('~/data/ann_rolling_update_gt/'+dataset_name+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    batch_size = len(data) // batch_num
+    bigger_k = 5 * k
+    #np.save(path/'x', x)
+    #np.save(path/'y', y)
+    assert len(data) == len(data_to_update)
+    all_results_ids = [] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
+    all_results_dists = []
+    all_neighbors = [set() for _ in queries]
+    # keep the same section of data in cache for locality for when no update has happened
+    # first compute when no update has happened
+    # Maybe implement KD heap here lmao
+    for i, v in enumerate(data):
+        for j, q in enumerate(queries):
+            all_neighbors[j].add((-np.linalg.norm(q-data[i]), i))
+            if len(all_neighbors[j]) > bigger_k:
+                min_elem = (math.inf, -1)
+                for kk in all_neighbors[j]:
+                    if kk[0] < min_elem[0]:
+                        min_elem = kk
+                all_neighbors[j].remove(min_elem)
+    
+    all_neighbor_ids = [[] for _ in queries]
+    all_dists = [[] for _ in queries]
+    for j, neighbors in enumerate(all_neighbors):
+        knn = heapq.nlargest(k, list(neighbors))
+        all_neighbor_ids[j] = [i for (_, i) in knn]
+        all_dists[j] = [-d for (d, _) in knn]
+    all_results_ids.append(all_neighbor_ids)
+    all_results_dists.append(all_dists)
+
+    # Then, iteratively filter out ids that are too small to mimic the deletion
+    for b in range(0, len(data), batch_size):
+        for j, q in enumerate(queries):
+            # all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
+            if len(all_neighbors[j]) < k:
+                all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
+                continue
+            for i in range(b, b + batch_size):
+                # insert the new things
+                neg_new_dist = -np.linalg.norm(q-data_to_update[i])
+                min_elem = (math.inf, -1)
+                for kk in all_neighbors[j]:
+                    if kk[0] < min_elem[0]:
+                        min_elem = kk
+                if min_elem[0] < neg_new_dist:
+                    all_neighbors[j].add((neg_new_dist, i+len(data)))
+                    if len(all_neighbors[j]) >= bigger_k:
+                        all_neighbors[j].remove(min_elem)
+
+        all_neighbor_ids = [[] for _ in queries]
+        all_dists = [[] for _ in queries]
+        for j, neighbors in enumerate(all_neighbors):
+            knn = heapq.nlargest(k, list(neighbors))
+            all_neighbor_ids[j] = [i for (_, i) in knn]
+            all_dists[j] = [-d for (d, _) in knn]
+        all_results_ids.append(all_neighbor_ids)
+        all_results_dists.append(all_dists)
+    
+    if save:
         raise NotImplementedError
     return all_results_ids, all_results_dists
-            
     
 
 def get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_name="sift", size=10000):
@@ -336,10 +404,10 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
 def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
     # np.random.shuffle(data)
-    size = 5000
+    size = 500000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
-    update_batch_size = 50
+    update_batch_size = 5000
     n_update_batch = 100
     n_queries = len(queries)
 
@@ -359,7 +427,8 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
-        save=False
+        save=True,
+        dataset_name="redcaps"
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
     initial_lookup_gt_dists = all_gt_dists[0]
@@ -380,7 +449,7 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         gt_neighbors,
         gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_10000_try_compression_3"
+        experiment_name="redcaps_1M_fresh_update_no_consolidation_baseline"
         #batch_build=True,
         #batch_build_data=data[:5000],
         #batch_build_tags=[i for i in range(1, 5001)]
@@ -396,33 +465,180 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
     """
 
-def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False):
+
+def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_queries = False):
+    # np.random.shuffle(data)
+    size = 5000
+    data = data[:2 * size]
+    # data_to_update = data[size:2 * size]
+    update_batch_size = 50
+    n_update_batch = 100
+    n_queries = len(queries)
+
+    indexing_plan = [(0, i) for i in range(size)]
+    initial_lookup = [(1, i) for i in range(len(queries))]
+    
+    print(len(data), size)
+
+    if randomize_queries:
+        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
+        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
+
+    plans = [("Indexing", data, queries, indexing_plan, None)]
+    # plans=[]
+    all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_insert_only_ground_truth(
+        path=None,
+        data=data[:size],
+        data_to_update=data[size:2 * size],
+        queries=queries,
+        save=False
+    )
+    initial_lookup_gt_neighbors = all_gt_neighbors[0]
+    initial_lookup_gt_dists = all_gt_dists[0]
+    for i in range(0, size, update_batch_size):
+        update_plan = []
+        for j in range(update_batch_size):
+            delete_id = i + j
+            insert_id = delete_id + size
+            update_plan.append((0, insert_id))
+        plans.append(("Insert", data, queries, update_plan, None))
+        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
+        gt_dists =all_gt_dists[1 + i // update_batch_size]
+        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
+
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name="redcaps_1M_update_no_consolidation_baseline"
+        #batch_build=True,
+        #batch_build_data=data[:5000],
+        #batch_build_tags=[i for i in range(1, 5001)]
+        )
+
+    # ============================== get static recall ==============================
+    # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
+    # reference updated recall exists
+    """
+    for i in range(0, size, update_batch_size):
+        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
+        gt_dists =all_gt_dists[1 + i // update_batch_size]
+        get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
+    """
+
+def random_point_recall_improvement_experiment(data, queries, randomize_queries = False):
+    """
+    This experiment repeatedly do the following to an index
+    add random points
+    delete the same random points
+    consolidate
+    measure recall
+    """
+    size = 100000 # update tag also starts from here
+    data = data[:size]
+    assert(len(data) == size)
+
+    update_batch_size = 5000
+    n_update_batch = 200
+    n_queries = len(queries)
+
+    indexing_plan = [(0, i) for i in range(size)]
+    lookup = [(1, i) for i in range(len(queries))]
+
+    if randomize_queries:
+        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
+        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
+
+    gt_neighbors, gt_dists = get_ground_truth_batch(
+        data,
+        0,
+        size,
+        queries,
+        k=10,
+        dataset_name="sift",
+        size=size
+    )
+    assert(len(gt_neighbors) == len(queries))
+    assert(len(gt_dists) == len(queries))
+    extra_data = np.zeros((n_update_batch * update_batch_size, len(data[0])))
+    for i in range(0, n_update_batch * update_batch_size):
+        base_idx = np.random.randint(size)
+        extra_data[i] = data[base_idx] + 50 * np.random.normal(size=len(data[0]))
+    print(data.shape)
+    print(extra_data.shape)
+    data = np.concatenate((data, extra_data))
+    try:
+        assert(data.shape[0] == size + n_update_batch * update_batch_size)
+    except AssertionError:
+        print(data.shape)
+        return
+
+    plans = [("Indexing", data, queries, indexing_plan, None)]
+
+    for i in range(0, n_update_batch):
+        update_plan = []
+        for j in range(update_batch_size):
+            id = size + i*update_batch_size + j
+            assert(id < len(data))
+            update_plan.append((0, id))
+        for j in range(update_batch_size):
+            id = size + i*update_batch_size + j
+            update_plan.append((2, id))
+            assert(id < len(data))
+        plans.append(("Update", data, queries, update_plan, None))
+        plans.append(("Consolidate", data, queries, [], None))
+        plans.append(("Search"+str(i), data, queries, lookup, gt_neighbors))
+        
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name="redcaps_10000_iter_rand_passes_trial_",
+        #batch_build=True,
+        #batch_build_data=data[:size],
+        #batch_build_tags=[i for i in range(1, size+1)]
+        )
+
+def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=False, batch_build=False):
     medoid_vector = calculate_medoid(data)
     medoid_distances = [np.linalg.norm(medoid_vector - v) for v in data]
     # sort the data from the furthest to the closest to the medoid
-    sorted_data = [v for _, v in sorted(zip(medoid_distances, data), key=lambda pair: -pair[0])]
+    sorted_data = [v for _, v in sorted(zip(medoid_distances, data), key=lambda pair: -pair[0], reverse=False)]
     #get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_name="sift", size=10000):
     indexing_plan = [(0, i) for i in range(len(data))]
     lookup = [(1, i) for i in range(len(queries))]
-    plans = [("Indexing", np.array(sorted_data), queries, indexing_plan, None)]
+    plans = [] if batch_build else [("Indexing", np.array(sorted_data), queries, indexing_plan, None)]
     gt_neighbors, gt_dists = get_ground_truth_batch(sorted_data, 0, len(sorted_data), queries, k=10, dataset_name="sift", size=len(data))
     plans.append(("Search", np.array(sorted_data), queries, lookup, gt_neighbors))
-    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data), experiment_name="sorted_adversarial_1000_")
+    run_dynamic_test(
+        plans, gt_neighbors, gt_dists,
+        batch_build=batch_build,
+        batch_build_data=sorted_data,
+        batch_build_tags=[i for i in range(1, len(sorted_data)+1)],
+        max_vectors=len(data), experiment_name="sorted_adversarial_10000_")
     indexing_plan = [(0, i) for i in range(len(data))]
     lookup = [(1, i) for i in range(len(queries))]
-    plans = [("Indexing", data, queries, indexing_plan, None)]
+    plans = [] if batch_build else [("Indexing", data, queries, indexing_plan, None)]
     gt_neighbors2, gt_dists2 = get_ground_truth_batch(data, 0, len(data), queries, k=10, dataset_name="sift", size=len(data))
     print(gt_neighbors[0], gt_neighbors2[0])
     print(gt_dists[0], gt_dists2[0])
     plans.append(("Search", data, queries, lookup, gt_neighbors2))
-    run_dynamic_test(plans, gt_neighbors2, gt_dists2, max_vectors=len(data), experiment_name="sorted_adversarial_1000_baseline_")
+    run_dynamic_test(
+        plans, gt_neighbors2, gt_dists2,
+        batch_build=batch_build,
+        batch_build_data=data,
+        batch_build_tags=[i for i in range(1, len(data)+1)],
+        max_vectors=len(data), experiment_name="sorted_adversarial_10000_baseline_")
 
 
 
 # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
 data = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular.npy")
-np.random.shuffle(data)
-data = data[:10000]
+# np.random.shuffle(data)
+data = data[:1000000]
 queries = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
 print(len(queries))
 small_batch_gradual_update_experiment(data, queries, False)
+#sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=True, batch_build=True)
