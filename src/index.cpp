@@ -3,6 +3,7 @@
 
 #include <omp.h>
 #include <fstream>
+#include <cstdlib>
 
 #include <type_traits>
 
@@ -26,8 +27,8 @@
 #include <stdlib.h>
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
-#define EDGE_ANALYTICS_ENABLED true
-#define PATH_COMPRESSION_ENABLED false
+#define EDGE_ANALYTICS_ENABLED false
+#define PATH_COMPRESSION_ENABLED true
 
 const bool COMPRESS_DEBUG = false;
 
@@ -1242,6 +1243,7 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
     std::vector<uint32_t> compression_starts;
     std::vector<uint32_t> compression_ends;
     std::vector<uint32_t> occlude_skipped_points;
+    std::vector<float> result_dists;
     // result is occlude_connected_points
 
     float cur_alpha = 1;
@@ -1267,6 +1269,7 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
                 if (iter->id != location)
                 {
                     result.push_back(iter->id);
+                    result_dists.push_back(iter->distance);
                 }
             }
 
@@ -1347,18 +1350,32 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
         //    compression_i++;
         //}
         
+        // "2-hop" compression
         // while (compression_i < result.size() && compression_i < 4) {
-        while (compression_i < result.size() && compression_i < 4) {
-            size_t cur_idx = result.size() - compression_i - 1;
-            if (cur_idx >= 2) {
-                size_t earlier_idx = cur_idx - 2;
-                // Compress in both directions
-                compression_starts.push_back(result[cur_idx]);
-                compression_ends.push_back(result[earlier_idx]);
-                compression_ends.push_back(result[cur_idx]);
-                compression_starts.push_back(result[earlier_idx]);
+        //     size_t cur_idx = result.size() - compression_i - 1;
+        //     if (cur_idx >= 2) {
+        //         size_t earlier_idx = cur_idx - 2;
+        //         // Compress in both directions
+        //         compression_starts.push_back(result[cur_idx]);
+        //         compression_ends.push_back(result[earlier_idx]);
+        //         compression_ends.push_back(result[cur_idx]);
+        //         compression_starts.push_back(result[earlier_idx]);
+        //     }
+        //     compression_i++;
+        // }
+        float min_dist = result_dists[0];
+        for (auto d: result_dists)
+            min_dist = min_dist < d ? min_dist : d;
+        for (size_t i = 0; i < result.size() - 4; i++) {
+            for (size_t j = i; j < result.size(); j++) {
+                float dist_diff = abs(result_dists[i] - result_dists[j]);
+                if (dist_diff < min_dist || rand() % 100 < min_dist * min_dist * 100 / (dist_diff * dist_diff)) {
+                    compression_starts.push_back(result[j]);
+                    compression_ends.push_back(result[i]);
+                    compression_starts.push_back(result[i]);
+                    compression_ends.push_back(result[j]);
+                }
             }
-            compression_i++;
         }
         add_compression_edges(compression_starts, compression_ends, scratch);
     }

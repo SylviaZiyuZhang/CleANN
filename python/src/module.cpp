@@ -120,10 +120,6 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
     // py::array_t<unsigned int> latencies({update_list.size()});
 
     size_t update_count = 0;
-    if (update_list.size() == 0 && consolidation_interval > 0) {
-        std::cout << "Consolidating?" << std::endl;
-        index.consolidate_delete();
-    }
 #pragma omp parallel for schedule(dynamic, 1)
     for (size_t for_openmp = 0; for_openmp < update_list.size(); for_openmp++)
     {
@@ -152,15 +148,20 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
             {
                 ids.mutable_data(update_id)[i]--;
             }
+            /* Record edge analytics
             if (update_id == update_list.size() - 1 && plan_id % 20 == 0) {
                 char filename[50];
                 sprintf(filename, "edge_analytics_%zu.csv", plan_id);
                 index._index.save_edge_analytics(filename);
             }
+            */
             // Record latency
             // latencies.mutable_at(update_id) = time_ms;
-            // if (consolidation_interval > 0 && update_id == 0)
-            //     index.consolidate_delete();
+            if (consolidation_interval > 0 && update_id == 0) {
+                std::cout << "Consolidating" << std::endl;
+                index.consolidate_delete();
+            }
+                
         }
         else if (update_type == 2) // delete
         {
