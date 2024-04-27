@@ -1491,7 +1491,7 @@ void Index<T, TagT, LabelT>::inter_insert(uint32_t n, std::vector<uint32_t> &pru
                 }
             }
             std::vector<uint32_t> new_out_neighbors;
-            prune_neighbors(des, dummy_pool, new_out_neighbors, scratch, true);
+            prune_neighbors(des, dummy_pool, new_out_neighbors, scratch, false);
             {
                 LockGuard guard(_locks[des]);
 
@@ -3123,7 +3123,6 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     std::shared_lock<std::shared_timed_mutex> shared_ul(_update_lock);
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
-    // std::cout << "Inserting point " << tag << std::endl; 
 
     auto location = reserve_location();
     if (_filtered_index)
@@ -3203,10 +3202,8 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     dl.unlock();
 
     // Insert tag and mapping to location
-    // std::cout << "dl unlocked" << std::endl;
     if (_enable_tags)
     {
-        // std::cout << "tag enabled" << std::endl;
         // if tags are enabled and tag is already inserted. so we can't reuse that tag.
         if (_tag_to_location.find(tag) != _tag_to_location.end())
         {
@@ -3216,7 +3213,6 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
         }
 
         _tag_to_location[tag] = location;
-        // std::cout << "Setting tag " << tag << std::endl;
         _location_to_tag.set(location, tag);
     }
     tl.unlock();
@@ -3232,12 +3228,13 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     if (_filtered_index)
     {
         // when filtered the best_candidates will share the same label ( label_present > distance)
-        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, true);
+        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, false);
     }
     else
     {
-        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, false);
+        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true);
     }
+    // TODO (SylviaZiyuZhang): FIXME get rid of the assertion
     assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)
     if (COMPRESS_DEBUG)
         std::cout << "Finished search_for_point_and_prune for " << tag << std::endl;
@@ -3301,7 +3298,6 @@ void Index<T, TagT, LabelT>::_lazy_delete(TagVector &tags, TagVector &failed_tag
 
 template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>::lazy_delete(const TagT &tag)
 {
-    // std::cout << "Deleting tag " << tag << std::endl;
     std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
