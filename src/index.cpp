@@ -1366,8 +1366,9 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
         float min_dist = result_dists[0];
         for (auto d: result_dists)
             min_dist = min_dist < d ? min_dist : d;
-        for (size_t i = 0; i < result.size() - 4; i++) {
-            for (size_t j = i; j < result.size(); j++) {
+        size_t sz = result.size() > 4 ? result.size() - 4 : 0;
+        for (size_t i = 0; i < sz; i++) {
+            for (size_t j = i + 1; j < result.size(); j++) {
                 float dist_diff = abs(result_dists[i] - result_dists[j]);
                 if (dist_diff < min_dist || rand() % 100 < min_dist * min_dist * 100 / (dist_diff * dist_diff)) {
                     compression_starts.push_back(result[j]);
@@ -3231,8 +3232,8 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
         search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, false);
     }
     else
-    {
-        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true);
+    { // TODO (SylviaZiyuZhang): important algorithmic part
+        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, false, 0, true);
     }
     // TODO (SylviaZiyuZhang): FIXME get rid of the assertion
     assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)
