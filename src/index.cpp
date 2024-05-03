@@ -29,6 +29,8 @@
 #define MAX_POINTS_FOR_USING_BITSET 10000000
 #define EDGE_ANALYTICS_ENABLED false
 #define PATH_COMPRESSION_ENABLED true
+#define INSERT_FIXES_DELETES true
+#define SEARCH_FIXED_DELETES false
 
 const bool COMPRESS_DEBUG = false;
 
@@ -950,7 +952,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
     uint32_t hops = 0;
     uint32_t cmps = 0;
-
+    // has_unexpanded_node and closest_unexpanded look at the top of the priority
+    // queue without taking them off the queue
     while (best_L_nodes.has_unexpanded_node())
     {
         hops ++;
@@ -1003,7 +1006,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         {
             // if (_dynamic_index)
             //     _locks[n].lock();
-            for (auto id : _graph_store->get_neighbours(n))
+            auto neighbors = graph_store->get_neighbours(n);
+            for (auto id : neighbors)
             {
                 assert(id < _max_points + _num_frozen_pts);
 
@@ -1065,6 +1069,19 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         {
             best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), n);
         }
+
+        #if INSERT_FIXES_DELETES
+        // TODO (SylviaZiyuZhang): Figure out the locking situation here
+        if (_location_to_tag.find(n) == _location_to_tag.end() && !search_invocation) { // n is deleted
+            _graph_store->set_incoming_delegate(n, pred_id);
+            auto outgoing_delegate = neighbors[0];
+            neighbors.erase(neighbors.first());
+            _graph_store->set_outgoing_delegate(n, outgoing_delegate);
+            add_multiple_neighbors_and_prune(outgoing_delegate, neighbors);
+            add_multiple_neighbors_and_prune(pred_id, neighbors);
+        }
+        #endif
+
     }
     return std::make_pair(hops, cmps);
 }
@@ -1678,7 +1695,66 @@ void Index<T, TagT, LabelT>::prune_all_neighbors(const uint32_t max_degree, cons
                       << "  count(deg<2):" << cnt << std::endl;
     }
 }
+template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors)
+{ // TODO (SylviaZiyuZhang): optimize this
+    std::vector<uint32_t> pruned_list;
+    // TODO (SylviaZiyuZhang): try path compress here
+    std::vector<uint32_t> copy_of_neighbors;
+    bool prune_needed = false;
+    { // TODO (SylviaZiyuZhang): do I need to move this up?
+        LockGuard guard(_locks[location]);
+        auto &pool = _graph_store->get_neighbours(location);
+        for (auto n: new_neighbors) {
+            if (std::find(pool.begin(), pool.end(), n) == pool.end())
+            { // TODO (SylviaZiyuZhang): consider packing _indexingRange into range
+                if (pool.size() < (uint64_t)(defaults::GRAPH_SLACK_FACTOR * _indexingRange))
+                {
+                    _graph_store->add_neighbour(location, n);
+                    prune_needed = false;
+                }
+                else
+                {
+                    if (copy_of_neighbors.size() == 0) {
+                        copy_of_neighbors.reserve(pool.size() + 1);
+                        copy_of_neighbors = pool;
+                    }
+                    copy_of_neighbors.push_back(n);
+                    prune_needed = true;
+                }
+            }
+        }
+    }
+    if (prune_needed)
+    {
+        // TODO (SylviaZiyuZhang): Consider allocating scratch in an upper level call
+        ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+        auto scratch = manager.scratch_space();
+        tsl::robin_set<uint32_t> dummy_visited(0);
+        std::vector<Neighbor> dummy_pool(0);
 
+        size_t reserveSize = (size_t)(std::ceil(1.05 * defaults::GRAPH_SLACK_FACTOR * _indexingRange));
+        dummy_visited.reserve(reserveSize);
+        dummy_pool.reserve(reserveSize);
+
+        for (auto cur_nbr : copy_of_neighbors)
+        {
+            if (dummy_visited.find(cur_nbr) == dummy_visited.end() && cur_nbr != location)
+            {
+                float dist = _data_store->get_distance(location, cur_nbr);
+                dummy_pool.emplace_back(Neighbor(cur_nbr, dist));
+                dummy_visited.insert(cur_nbr);
+            }
+        }
+        std::vector<uint32_t> new_out_neighbors;
+        prune_neighbors(location, dummy_pool, pruned_list, scratch, false);
+        {
+            LockGuard guard(_locks[location]);
+
+            _graph_store->set_neighbours(location, pruned_list);
+        }
+    }
+}
 // REFACTOR
 template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::set_start_points(const T *data, size_t data_count)
@@ -2553,6 +2629,7 @@ template <typename T, typename TagT, typename LabelT>
 inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_set<uint32_t> &old_delete_set, size_t loc,
                                                    const uint32_t range, const uint32_t maxc, const float alpha,
                                                    InMemQueryScratch<T> *scratch)
+// loc is a possible still live incoming neighbor of a deleted point
 {
     tsl::robin_set<uint32_t> &expanded_nodes_set = scratch->expanded_nodes_set();
     std::vector<Neighbor> &expanded_nghrs_vec = scratch->expanded_nodes_vec();
@@ -2573,7 +2650,7 @@ inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_set<uint32_t
     for (auto ngh : adj_list)
     {
         if (old_delete_set.find(ngh) == old_delete_set.end())
-        {
+        { // insert not deleted neighbor into expanded_nodes_set
             expanded_nodes_set.insert(ngh);
         }
         else
@@ -3344,6 +3421,48 @@ void Index<T, TagT, LabelT>::lazy_delete(const std::vector<TagT> &tags, std::vec
             _tag_to_location.erase(tag);
         }
     }
+}
+
+template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>::dynamic_delete(const TagT &tag)
+{
+    std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+    _data_compacted = false;
+
+    if (_tag_to_location.find(tag) == _tag_to_location.end())
+    {
+        diskann::cerr << "Delete tag not found " << tag << std::endl;
+        return -1;
+    }
+    assert(_tag_to_location[tag] < _max_points);
+
+    const auto location = _tag_to_location[tag];
+    _delete_set->insert(location);
+    _location_to_tag.erase(location);
+    _tag_to_location.erase(tag);
+    // The deleted point being its own delegate means that no incoming neighbor has been found
+    _graph_store->set_incoming_delegate(location, location);
+    // TODO (SylviaZiyuZhang): fix the concurrency here
+    auto outgoing_neighbors = _graph_store->get_neighbours(location);
+    auto outgoing_delegate = outgoing_neighbors[0];
+    // TODO (SylviaZiyuZhang): add edges from outgoing delegate to the rest of the neighborhood
+    // and use the appropriatel lock here
+    _graph_store->set_outgoing_delegate(location, outgoing_delegate);
+    // TODO (SylviaZiyuZhang): Should I use erase here?
+    outgoing_neighbors.erase(outgoing_neighbors.begin());
+    // TODO (SylviaZiyuZhang): make sure that outgoing_delegate is not deleted during this.
+    // TODO (SylviaZiyuZhang): make sure that outgoing_neighbors is not modified
+    add_multiple_neighbors_and_prune(outgoing_delegate, outgoing_neighbors);
+    
+    return 0;
+}
+
+template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::dynamic_delete(const std::vector<TagT> &tags, std::vector<TagT> &failed_tags)
+{
+    throw diskann::ANNException("Batch dynamic delete not implemented yet.", -1, __FUNCSIG__,
+                                    __FILE__, __LINE__);
 }
 
 template <typename T, typename TagT, typename LabelT> bool Index<T, TagT, LabelT>::is_index_saved()

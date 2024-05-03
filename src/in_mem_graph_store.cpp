@@ -56,18 +56,59 @@ void InMemGraphStore::set_neighbours(const location_t i, std::vector<location_t>
     {
         _max_observed_degree = (uint32_t)(neighbours.size());
     }
-}
+};
+
+// TODO (SylviaZiyuZhang): modify these to support concurrency
+location_t InMemGraphStore::get_incoming_delegate(const location_t i)
+{
+    return _delegates.at(2 * i);
+};
+
+location_t InMemGraphStore::get_outgoing_delegate(const location_t i)
+{
+    return _delegates.at(2 * i + 1);
+};
+
+void InMemGraphStore::set_incoming_delegate(const location_t i, location_t d)
+{
+    _delegates[2 * i] = d;
+};
+
+void InMemGraphStore::set_outgoing_delegate(const location_t i, location_t d)
+{
+    _delegates[2 * i + 1] = d;
+};
 
 size_t InMemGraphStore::resize_graph(const size_t new_size)
 {
     _graph.resize(new_size);
+    _delegates.resize(2 * new_size);
+    _incoming_degrees.resize(new_size);
     set_total_points(new_size);
     return _graph.size();
-}
+};
+
+size_t InMemGraphStore::get_incoming_degree_count(const location_t i)
+{
+    return _incoming_degrees.at(i);
+};
+
+size_t InMemGraphStore::increment_incoming_degree_count(const location_t i)
+{
+    _incoming_degrees[i] ++;
+    return _incoming_degrees.at(i);
+};
+size_t InMemGraphStore::decrement_incoming_degree_count(const location_t i)
+{
+    _incoming_degrees[i] --;
+    return _incoming_degrees.at(i);
+};
 
 void InMemGraphStore::clear_graph()
 {
     _graph.clear();
+    _delegates.clear();
+    _incoming_degrees.clear();
 }
 
 #ifdef EXEC_ENV_OLS
@@ -132,6 +173,7 @@ std::tuple<uint32_t, uint32_t, size_t> InMemGraphStore::load_impl(AlignedFileRea
 }
 #endif
 
+// TODO (SylviaZiyuZhang): modify this part to support delegates.
 std::tuple<uint32_t, uint32_t, size_t> InMemGraphStore::load_impl(const std::string &filename,
                                                                   size_t expected_num_points)
 {
