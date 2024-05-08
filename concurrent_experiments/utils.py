@@ -138,6 +138,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
                 query_complexity=query_complexity,
                 num_threads=num_threads,
                 consolidation_interval=consolidate,
+                plan_id=cur_plan,
             )
             # print("Finished plan", plan_name)
             if optional_gt is not None:

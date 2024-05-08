@@ -400,14 +400,20 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
     plans = [("Indexing", data, queries, indexing_plan, None)]
     plans.append(("Search", data, queries, lookup, gt_neighbors))
 
-    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name="redcaps_no_shuffle_10000_fresh_update_static_recall_"+str(start)
+    )
 
 def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
     # np.random.shuffle(data)
-    size = 500000
+    size = 5000
     data = data[:2 * size]
     # data_to_update = data[size:2 * size] 
-    update_batch_size = 5000
+    update_batch_size = 50
     n_update_batch = 100
     n_queries = len(queries)
 
@@ -423,11 +429,12 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
     plans = [("Indexing", data, queries, indexing_plan, None)]
     # plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
-        path=None,
+        path=Path('~/data/ann_rolling_update_gt/redcaps_5000_100').expanduser(),
+        # path=None,
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
-        save=True,
+        save=False,
         dataset_name="redcaps"
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
@@ -443,27 +450,30 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
         plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
-
+    
     run_dynamic_test(
         plans,
         gt_neighbors,
         gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_1M_fresh_update_no_consolidation_baseline"
+        experiment_name="dynamic_delete_trial_redcaps_10k"
+        #experiment_name="redcaps_1M_fresh_update_no_consolidation_baseline"
         #batch_build=True,
         #batch_build_data=data[:5000],
         #batch_build_tags=[i for i in range(1, 5001)]
         )
+    
+    
 
     # ============================== get static recall ==============================
     # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
     # reference updated recall exists
-    """
-    for i in range(0, size, update_batch_size):
-        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
-        gt_dists =all_gt_dists[1 + i // update_batch_size]
-        get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
-    """
+    
+    # for i in range(0, size, update_batch_size):
+    #     gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
+    #     gt_dists =all_gt_dists[1 + i // update_batch_size]
+    #     get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
+    
 
 
 def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_queries = False):
@@ -511,7 +521,7 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_q
         gt_neighbors,
         gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_1M_update_no_consolidation_baseline"
+        experiment_name="dynamic_delete_trial"
         #batch_build=True,
         #batch_build_data=data[:5000],
         #batch_build_tags=[i for i in range(1, 5001)]
@@ -634,10 +644,10 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
 
 
 
-# data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
+#data, queries, _, _ = load_or_create_test_data(path="./data/sift-128-euclidean.hdf5")
 data = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular.npy")
 # np.random.shuffle(data)
-data = data[:1000000]
+data = data[:10000]
 queries = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
 print(len(queries))
 small_batch_gradual_update_experiment(data, queries, False)
