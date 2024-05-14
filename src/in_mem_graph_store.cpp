@@ -34,6 +34,7 @@ const std::vector<location_t> &InMemGraphStore::get_neighbours(const location_t 
 void InMemGraphStore::add_neighbour(const location_t i, location_t neighbour_id)
 {
     _graph[i].emplace_back(neighbour_id);
+    _incoming_degrees[neighbour_id] ++;
     if (_max_observed_degree < _graph[i].size())
     {
         _max_observed_degree = (uint32_t)(_graph[i].size());
@@ -42,6 +43,8 @@ void InMemGraphStore::add_neighbour(const location_t i, location_t neighbour_id)
 
 void InMemGraphStore::clear_neighbours(const location_t i)
 {
+    for (auto nb: _graph.at(i))
+        _incoming_degrees[nb] --;
     _graph[i].clear();
 };
 void InMemGraphStore::swap_neighbours(const location_t a, location_t b)
@@ -51,7 +54,13 @@ void InMemGraphStore::swap_neighbours(const location_t a, location_t b)
 
 void InMemGraphStore::set_neighbours(const location_t i, std::vector<location_t> &neighbours)
 {
+    auto old_neighbors = _graph.at(i);
+    for (auto nb: old_neighbors)
+        _incoming_degrees[nb] --;
+
     _graph[i].assign(neighbours.begin(), neighbours.end());
+    for (auto nb: neighbours)
+        _incoming_degrees[nb] ++;
     if (_max_observed_degree < neighbours.size())
     {
         _max_observed_degree = (uint32_t)(neighbours.size());
