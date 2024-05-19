@@ -166,7 +166,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     DISKANN_DLLEXPORT void dynamic_delete(const std::vector<TagT> &tags, std::vector<TagT> &failed_tags);
     // consolidate dynamic deletes is only called when there is no space left.
     DISKANN_DLLEXPORT consolidation_report consolidate_dynamic_deletes(const IndexWriteParameters &parameters);
-    DISKANN_DLLEXPORT void add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors);
+    DISKANN_DLLEXPORT void add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors, const uint32_t exclude_loc);
 
     // Call after a series of lazy deletions
     // Returns number of live points left after consolidation

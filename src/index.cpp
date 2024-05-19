@@ -31,6 +31,7 @@
 #define PATH_COMPRESSION_ENABLED true
 #define INSERT_FIXES_DELETES true
 #define SEARCH_FIXED_DELETES false
+#define COMPLICATED_DYNAMIC_DELETE false
 
 const bool COMPRESS_DEBUG = false;
 
@@ -1030,34 +1031,43 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                     if (_delete_set->find(id) == _delete_set->end()) {
                         id_scratch.push_back(id);
                     } else { // TODO (SylviaZiyuZhang): finish this
-                        auto cur_id_incoming = id;
-                        auto cur_id_outgoing = id;
-                        while (true) { // TODO (SylviaZiyuZhang): Does this terminate? Is it guaranteed that there will be
-                        // a delegate? Also substitution is not implemented yet. We should compress this too
-                            auto outgoing_delegate = _graph_store->get_outgoing_delegate(cur_id_outgoing);
-                            if (_delete_set->find(outgoing_delegate) == _delete_set->end()) {
-                                if (is_not_visited(outgoing_delegate))
-                                    id_scratch.push_back(outgoing_delegate);
-                                break;
+                        #if COMPLICATED_DYNAMIC_DELETE
+                            auto cur_id_incoming = id;
+                            auto cur_id_outgoing = id;
+                            while (true) { // TODO (SylviaZiyuZhang): Does this terminate? Is it guaranteed that there will be
+                            // a delegate? Also substitution is not implemented yet. We should compress this too
+                                auto outgoing_delegate = _graph_store->get_outgoing_delegate(cur_id_outgoing);
+                                if (_delete_set->find(outgoing_delegate) == _delete_set->end()) {
+                                    if (is_not_visited(outgoing_delegate))
+                                        id_scratch.push_back(outgoing_delegate);
+                                    break;
+                                }
+                                cur_id_outgoing = outgoing_delegate;
                             }
-                            cur_id_outgoing = outgoing_delegate;
-                        }
-                        while (true) { // TODO (SylviaZiyuZhang): be extra careful with this termination condition
-                            auto incoming_delegate = _graph_store->get_incoming_delegate(cur_id_incoming);
-                            if (cur_id_incoming == incoming_delegate) {
-                                _graph_store->set_incoming_delegate(cur_id_incoming, n);
-                                break;
+                            while (true) { // TODO (SylviaZiyuZhang): be extra careful with this termination condition
+                                auto incoming_delegate = _graph_store->get_incoming_delegate(cur_id_incoming);
+                                if (cur_id_incoming == incoming_delegate) {
+                                    _graph_store->set_incoming_delegate(cur_id_incoming, n);
+                                    break;
+                                }
+                                if (_delete_set->find(incoming_delegate) == _delete_set->end()) {
+                                    if (is_not_visited(incoming_delegate))
+                                        id_scratch.push_back(incoming_delegate);
+                                    break;
+                                }
+                                cur_id_incoming = incoming_delegate;
                             }
-                            if (_delete_set->find(incoming_delegate) == _delete_set->end()) {
-                                if (is_not_visited(incoming_delegate))
-                                    id_scratch.push_back(incoming_delegate);
-                                break;
+                            // TODO (SylviaZiyuZhang): lock this
+                            // TODO (SylviaZiyuZhang): this is definitely not correct
+                            add_multiple_neighbors_and_prune(n, _graph_store->get_neighbours(cur_id_outgoing), n);
+                            _graph_store->set_incoming_delegate(id, n);
+                        #else
+                            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
+                            if (_graph_store->get_incoming_degree_count(n) == 0) {
+                                release_location(n);
                             }
-                            cur_id_incoming = incoming_delegate;
-                        }
-                        // TODO (SylviaZiyuZhang): lock this
-                        add_multiple_neighbors_and_prune(n, _graph_store->get_neighbours(cur_id_outgoing));
-                        _graph_store->set_incoming_delegate(id, n);
+
+                        #endif
                     }
                 }
             }
@@ -1116,8 +1126,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             auto outgoing_delegate = copy_of_neighbors[0];
             copy_of_neighbors.erase(copy_of_neighbors.begin());
             _graph_store->set_outgoing_delegate(n, outgoing_delegate);
-            add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors);
-            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors);
+            add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
+            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
             fixed = true;
         }
         #endif
@@ -1130,8 +1140,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             auto outgoing_delegate = copy_of_neighbors[0];
             copy_of_neighbors.erase(copy_of_neighbors.begin());
             _graph_store->set_outgoing_delegate(n, outgoing_delegate);
-            add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors);
-            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors);
+            add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
+            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
             fixed = true;
         }
         #endif
@@ -1612,7 +1622,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
 
     diskann::Timer link_timer;
 
-#pragma omp parallel for schedule(dynamic, 2048)
+// #pragma omp parallel for schedule(dynamic, 2048)
     for (int64_t node_ctr = 0; node_ctr < (int64_t)(visit_order.size()); node_ctr++)
     {
         auto node = visit_order[node_ctr];
@@ -1682,6 +1692,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     if (_nd > 0)
     {
         diskann::cout << "done. Link time: " << ((double)link_timer.elapsed() / (double)1000000) << "s" << std::endl;
+        diskann::cout << "Empty slot size: " << _empty_slots.size() << "; max points: " << _max_points << std::endl;
     }
 }
 
@@ -1750,7 +1761,7 @@ void Index<T, TagT, LabelT>::prune_all_neighbors(const uint32_t max_degree, cons
     }
 }
 template <typename T, typename TagT, typename LabelT>
-void Index<T, TagT, LabelT>::add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors)
+void Index<T, TagT, LabelT>::add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors, const uint32_t exclude_loc)
 { // TODO (SylviaZiyuZhang): optimize this
     std::vector<uint32_t> pruned_list;
     // TODO (SylviaZiyuZhang): try path compress here
@@ -1927,6 +1938,14 @@ void Index<T, TagT, LabelT>::build_with_data_populated(const std::vector<TagT> &
         if (pool.size() < 2)
             cnt++;
     }
+
+    _empty_slots.clear();
+    assert(_nd <= _max_points);
+    for (auto i = _nd; i < _max_points; i++)
+    {
+        _empty_slots.insert((uint32_t)i);
+    }
+    
     diskann::cout << "Index built with degree: max:" << max << "  avg:" << (float)total / (float)(_nd + _num_frozen_pts)
                   << "  min:" << min << "  count(deg<2):" << cnt << std::endl;
 
@@ -1971,7 +1990,6 @@ void Index<T, TagT, LabelT>::build(const T *data, const size_t num_points_to_loa
     }
 
     build_with_data_populated(tags);
-    std::cout << "Finishing Index::build" << std::endl;
 }
 
 template <typename T, typename TagT, typename LabelT>
@@ -3447,6 +3465,25 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
     _delete_set->insert(location);
     _location_to_tag.erase(location);
     _tag_to_location.erase(tag);
+
+    #if COMPLICATED_DYNAMIC_DELETE
+    auto neighbors = _graph_store->get_neighbours(location);
+    auto out_delegate = location;
+    for (auto o: neighbors) {
+        out_delegate = o;
+        while (_delete_set->find(out_delegate) != _delete_set->end())
+            out_delegate = _graph_store->get_outgoing_delegate(out_delegate);
+        if (out_delegate != location)
+            break;
+    }
+    if (out_delegate == location)
+        printf("MAJOR EDGE CASE\n");
+        return 1;
+    _graph_store->set_outgoing_delegate(location, out_delegate);
+    add_multiple_neighbors_and_prune(out_delegate, neighbors, location);
+    _graph_store->clear_neighbours(location);
+    #endif
+
     return 0;
 }
 
@@ -3508,7 +3545,7 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
     outgoing_neighbors.erase(outgoing_neighbors.begin());
     // TODO (SylviaZiyuZhang): make sure that outgoing_delegate is not deleted during this.
     // TODO (SylviaZiyuZhang): make sure that outgoing_neighbors is not modified
-    add_multiple_neighbors_and_prune(outgoing_delegate, outgoing_neighbors);
+    add_multiple_neighbors_and_prune(outgoing_delegate, outgoing_neighbors, location);
     
     return 0;
 }
