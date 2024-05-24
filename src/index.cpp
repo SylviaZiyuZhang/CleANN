@@ -28,9 +28,9 @@
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
 #define EDGE_ANALYTICS_ENABLED false
-#define PATH_COMPRESSION_ENABLED true
+#define PATH_COMPRESSION_ENABLED false
 #define INSERT_FIXES_DELETES true
-#define SEARCH_FIXED_DELETES false
+#define SEARCH_FIXED_DELETES true
 #define COMPLICATED_DYNAMIC_DELETE false
 
 const bool COMPRESS_DEBUG = false;
@@ -829,7 +829,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     const T *query, const uint32_t Lsize, const std::vector<uint32_t> &init_ids, InMemQueryScratch<T> *scratch,
     bool use_filter, const std::vector<LabelT> &filter_labels, bool search_invocation)
 {
-    // printf("Iterating to fixed point\n");
     std::vector<Neighbor> &expanded_nodes = scratch->pool();
     NeighborPriorityQueue &best_L_nodes = scratch->best_l_nodes();
     best_L_nodes.reserve(Lsize);
@@ -967,6 +966,9 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         auto nbr = nbr_info.first;
         auto pred_id = nbr_info.second;
         auto n = nbr.id;
+        if (pred_id == n && n != 1000000) {
+            printf("haha %u\n", n);
+        }
 
         #if EDGE_ANALYTICS_ENABLED
         size_t pred_depth = depth_record[pred_id];
@@ -1011,69 +1013,69 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         dist_scratch.clear();
         std::vector<uint32_t> copy_of_neighbors;
         {
-            // if (_dynamic_index)
-            //     _locks[n].lock();
+            if (_dynamic_index)
+                _locks[n].lock();
             auto neighbors = _graph_store->get_neighbours(n);
             copy_of_neighbors.reserve(neighbors.size());
             copy_of_neighbors.assign(neighbors.begin(), neighbors.end());
-            for (auto id : neighbors)
+            // TODO (SylviaZiyuZhang): Maybe only fix one per iteration
+            if (_delete_set->find(n) != _delete_set->end() && _graph_store->get_incoming_degree_count(n) == 1) {
+                release_location(n);
+            }
+            if (_dynamic_index)
+                _locks[n].unlock();
+        }
+
+        for (auto id : copy_of_neighbors)
+        {
+            assert(id < _max_points + _num_frozen_pts);
+
+            if (use_filter)
             {
-                assert(id < _max_points + _num_frozen_pts);
+                // NOTE: NEED TO CHECK IF THIS CORRECT WITH NEW LOCKS.
+                if (!detect_common_filters(id, search_invocation, filter_labels))
+                    continue;
+            }
 
-                if (use_filter)
-                {
-                    // NOTE: NEED TO CHECK IF THIS CORRECT WITH NEW LOCKS.
-                    if (!detect_common_filters(id, search_invocation, filter_labels))
-                        continue;
-                }
-
-                if (is_not_visited(id)) {
-                    if (_delete_set->find(id) == _delete_set->end()) {
-                        id_scratch.push_back(id);
-                    } else { // TODO (SylviaZiyuZhang): finish this
-                        #if COMPLICATED_DYNAMIC_DELETE
-                            auto cur_id_incoming = id;
-                            auto cur_id_outgoing = id;
-                            while (true) { // TODO (SylviaZiyuZhang): Does this terminate? Is it guaranteed that there will be
-                            // a delegate? Also substitution is not implemented yet. We should compress this too
-                                auto outgoing_delegate = _graph_store->get_outgoing_delegate(cur_id_outgoing);
-                                if (_delete_set->find(outgoing_delegate) == _delete_set->end()) {
-                                    if (is_not_visited(outgoing_delegate))
-                                        id_scratch.push_back(outgoing_delegate);
-                                    break;
-                                }
-                                cur_id_outgoing = outgoing_delegate;
+            if (is_not_visited(id)) {
+                if (_delete_set->find(id) == _delete_set->end()) {
+                    id_scratch.push_back(id);
+                } else {
+                    #if COMPLICATED_DYNAMIC_DELETE
+                        auto cur_id_incoming = id;
+                        auto cur_id_outgoing = id;
+                        while (true) { // TODO (SylviaZiyuZhang): Does this terminate? Is it guaranteed that there will be
+                        // a delegate? Also substitution is not implemented yet. We should compress this too
+                            auto outgoing_delegate = _graph_store->get_outgoing_delegate(cur_id_outgoing);
+                            if (_delete_set->find(outgoing_delegate) == _delete_set->end()) {
+                                if (is_not_visited(outgoing_delegate))
+                                    id_scratch.push_back(outgoing_delegate);
+                                break;
                             }
-                            while (true) { // TODO (SylviaZiyuZhang): be extra careful with this termination condition
-                                auto incoming_delegate = _graph_store->get_incoming_delegate(cur_id_incoming);
-                                if (cur_id_incoming == incoming_delegate) {
-                                    _graph_store->set_incoming_delegate(cur_id_incoming, n);
-                                    break;
-                                }
-                                if (_delete_set->find(incoming_delegate) == _delete_set->end()) {
-                                    if (is_not_visited(incoming_delegate))
-                                        id_scratch.push_back(incoming_delegate);
-                                    break;
-                                }
-                                cur_id_incoming = incoming_delegate;
+                            cur_id_outgoing = outgoing_delegate;
+                        }
+                        while (true) { // TODO (SylviaZiyuZhang): be extra careful with this termination condition
+                            auto incoming_delegate = _graph_store->get_incoming_delegate(cur_id_incoming);
+                            if (cur_id_incoming == incoming_delegate) {
+                                _graph_store->set_incoming_delegate(cur_id_incoming, n);
+                                break;
                             }
-                            // TODO (SylviaZiyuZhang): lock this
-                            // TODO (SylviaZiyuZhang): this is definitely not correct
-                            add_multiple_neighbors_and_prune(n, _graph_store->get_neighbours(cur_id_outgoing), n);
-                            _graph_store->set_incoming_delegate(id, n);
-                        #else
-                            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
-                            if (_graph_store->get_incoming_degree_count(n) == 0) {
-                                release_location(n);
+                            if (_delete_set->find(incoming_delegate) == _delete_set->end()) {
+                                if (is_not_visited(incoming_delegate))
+                                    id_scratch.push_back(incoming_delegate);
+                                break;
                             }
-
-                        #endif
-                    }
+                            cur_id_incoming = incoming_delegate;
+                        }
+                        // TODO (SylviaZiyuZhang): lock this
+                        // TODO (SylviaZiyuZhang): this is definitely not correct
+                        add_multiple_neighbors_and_prune(n, _graph_store->get_neighbours(cur_id_outgoing), n);
+                        _graph_store->set_incoming_delegate(id, n);
+                    #endif
                 }
             }
-            // if (_dynamic_index)
-            //     _locks[n].unlock();
         }
+            
 
         // Mark nodes visited
         for (auto id : id_scratch)
@@ -1118,15 +1120,16 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), n);
         }
 
+        // TODO (SylviaZiyuZhang): Maybe try to give this work to another worker
         #if INSERT_FIXES_DELETES
-        // TODO (SylviaZiyuZhang): Figure out the locking situation here
         // TODO (SylviaZiyuZhang): Maybe fix after outgoing_delegate is explored
-        if (_delete_set->find(n) != _delete_set->end() && !search_invocation && !fixed) { // n is deleted
-            _graph_store->set_incoming_delegate(n, pred_id);
-            auto outgoing_delegate = copy_of_neighbors[0];
-            copy_of_neighbors.erase(copy_of_neighbors.begin());
-            _graph_store->set_outgoing_delegate(n, outgoing_delegate);
-            add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
+        if (_delete_set->find(n) != _delete_set->end() && !search_invocation && !fixed && n != pred_id) { // n is deleted
+            // TODO (SylviaZiyuZhang): This is the star idea
+            // _graph_store->set_incoming_delegate(n, pred_id);
+            // auto outgoing_delegate = copy_of_neighbors[0];
+            // copy_of_neighbors.erase(copy_of_neighbors.begin());
+            // _graph_store->set_outgoing_delegate(n, outgoing_delegate);
+            // add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
             add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
             fixed = true;
         }
@@ -1135,12 +1138,13 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         #if SEARCH_FIXES_DELETES
         // TODO (SylviaZiyuZhang): Figure out the locking situation here
         // TODO (SylviaZiyuZhang): Maybe fix after outgoing_delegate is explored
-        if (_delete_set->find(n) != _delete_set->end() && search_invocation && !fixed) { // n is deleted
-            _graph_store->set_incoming_delegate(n, pred_id);
-            auto outgoing_delegate = copy_of_neighbors[0];
-            copy_of_neighbors.erase(copy_of_neighbors.begin());
-            _graph_store->set_outgoing_delegate(n, outgoing_delegate);
-            add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
+        if (_delete_set->find(n) != _delete_set->end() && search_invocation && !fixed && n != pred_id) { // n is deleted
+            // TODO (SylviaZiyuZhang): This is the star idea
+            // _graph_store->set_incoming_delegate(n, pred_id);
+            // auto outgoing_delegate = copy_of_neighbors[0];
+            // copy_of_neighbors.erase(copy_of_neighbors.begin());
+            // _graph_store->set_outgoing_delegate(n, outgoing_delegate);
+            // add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
             add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
             fixed = true;
         }
@@ -1208,6 +1212,7 @@ void Index<T, TagT, LabelT>::search_for_point_and_prune(int location, uint32_t L
 
     auto &pool = scratch->pool();
 
+    // Excludes self-loops
     for (uint32_t i = 0; i < pool.size(); i++)
     {
         if (pool[i].id == (uint32_t)location)
@@ -1621,7 +1626,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
         _start = calculate_entry_point();
 
     diskann::Timer link_timer;
-
+// TODO (SylviaZiyuZhang): revert this
 // #pragma omp parallel for schedule(dynamic, 2048)
     for (int64_t node_ctr = 0; node_ctr < (int64_t)(visit_order.size()); node_ctr++)
     {
@@ -1762,37 +1767,34 @@ void Index<T, TagT, LabelT>::prune_all_neighbors(const uint32_t max_degree, cons
 }
 template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors, const uint32_t exclude_loc)
-{ // TODO (SylviaZiyuZhang): optimize this
-    std::vector<uint32_t> pruned_list;
+{
     // TODO (SylviaZiyuZhang): try path compress here
     std::vector<uint32_t> copy_of_neighbors;
     bool prune_needed = false;
-    { // TODO (SylviaZiyuZhang): do I need to move this up?
+    {
         LockGuard guard(_locks[location]);
-        auto &pool = _graph_store->get_neighbours(location);
-        for (auto n: new_neighbors) {
-            if (std::find(pool.begin(), pool.end(), n) == pool.end())
-            { // TODO (SylviaZiyuZhang): consider packing _indexingRange into range
-                if (pool.size() < (uint64_t)(defaults::GRAPH_SLACK_FACTOR * _indexingRange))
-                {
-                    _graph_store->add_neighbour(location, n);
-                    prune_needed = false;
-                }
-                else
-                {
-                    if (copy_of_neighbors.size() == 0) {
-                        copy_of_neighbors.reserve(pool.size() + 1);
-                        copy_of_neighbors = pool;
-                    }
-                    copy_of_neighbors.push_back(n);
-                    prune_needed = true;
-                }
+        auto neighbors = _graph_store->get_neighbours(location);
+        copy_of_neighbors.reserve(neighbors.size());
+        for (auto n: neighbors) {
+            if (n != exclude_loc) {
+                copy_of_neighbors.push_back(n);
             }
+        }
+        for (auto n: new_neighbors) {
+            if (n != location && n != exclude_loc && std::find(neighbors.begin(), neighbors.end(), n) == neighbors.end()) {
+                copy_of_neighbors.push_back(n);
+            }
+        }
+        if (copy_of_neighbors.size() < (uint64_t(defaults::GRAPH_SLACK_FACTOR * _indexingRange))) {
+            _graph_store->set_neighbours(location, copy_of_neighbors);
+            prune_needed = false;
+        } else {
+            prune_needed = true;
         }
     }
     if (prune_needed)
     {
-        // TODO (SylviaZiyuZhang): Consider allocating scratch in an upper level call
+        // TODO (SylviaZiyuZhang): Allocate scratch in an upper level call
         ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
         auto scratch = manager.scratch_space();
         tsl::robin_set<uint32_t> dummy_visited(0);
@@ -1811,11 +1813,10 @@ void Index<T, TagT, LabelT>::add_multiple_neighbors_and_prune(const uint32_t loc
                 dummy_visited.insert(cur_nbr);
             }
         }
-        std::vector<uint32_t> new_out_neighbors;
+        std::vector<uint32_t> pruned_list;
         prune_neighbors(location, dummy_pool, pruned_list, scratch, false);
         {
             LockGuard guard(_locks[location]);
-
             _graph_store->set_neighbours(location, pruned_list);
         }
     }
@@ -3254,7 +3255,6 @@ int Index<T, TagT, LabelT>::_insert_point(const DataType &point, const TagType t
 template <typename T, typename TagT, typename LabelT>
 int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag)
 {
-    printf("Inserting point %u\n", tag);
     std::vector<LabelT> no_labels{0};
     return insert_point(point, tag, no_labels);
 }
@@ -3599,7 +3599,9 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
 
     diskann::cout << "------------------- Index object: " << (uint64_t)this << " -------------------" << std::endl;
     diskann::cout << "Number of points: " << _nd << std::endl;
-    diskann::cout << "Graph size: " << _graph_store->get_total_points() << std::endl;
+    auto n_points = _graph_store->get_total_points();
+    diskann::cout << "Graph size: " << n_points << std::endl;
+    diskann::cout << "Average degree" << _graph_store->get_edge_count() / n_points << std::endl;
     diskann::cout << "Location to tag size: " << _location_to_tag.size() << std::endl;
     diskann::cout << "Tag to location size: " << _tag_to_location.size() << std::endl;
     diskann::cout << "Number of empty slots: " << _empty_slots.size() << std::endl;
