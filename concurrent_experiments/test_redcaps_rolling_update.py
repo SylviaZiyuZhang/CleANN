@@ -402,6 +402,45 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
+def static_recall_experiment(data, queries, randomize_queries = False):
+    size = 500000
+    data = data[:2 * size]
+    n_queries = len(queries)
+
+    indexing_plan = [(0, i) for i in range(size)]
+    initial_lookup = [(1, i) for i in range(len(queries))]
+    
+    print(len(data), size)
+
+    if randomize_queries:
+        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
+        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
+
+    plans=[]
+    all_gt_neighbors,_= get_or_create_rolling_update_ground_truth(
+        path=None,
+        data=data[:size],
+        data_to_update=data[size:2 * size],
+        queries=queries,
+        save=True,
+        dataset_name="sample"
+    )
+    lookup_gt_neighbors = all_gt_neighbors[-1]
+
+    plans.append(("Search", data, queries, initial_lookup, lookup_gt_neighbors))
+
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name="redcaps_1M_fresh_update_no_consolidation_baseline"
+        batch_build=True,
+        batch_build_data=data,
+        batch_build_tags=[i for i in range(1, len(data)+1)]
+        )
+
+
 def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
     # np.random.shuffle(data)
     size = 500000
