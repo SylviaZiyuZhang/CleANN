@@ -24,7 +24,13 @@ def calculate_medoid(data):
     medoid_id = np.argmin(distance_matrix.sum(axis=0))
     return data[medoid_id]
 
-def brute_force_knn(data, start, end, query, k=10, return_set=False):
+def get_cosine_dist(A, B):
+    return - np.dot(A,B) / (np.linalg.norm(A) * np.linalg.norm(B))
+
+def get_l2_dist(A, B):
+    return np.linalg.norm(q-data[i])
+
+def brute_force_knn(data, start, end, query, k=10, return_set=False, metric="l2"):
     """
     data: dataset
     start: the starting index to compute ground truth neighbors to
@@ -37,8 +43,9 @@ def brute_force_knn(data, start, end, query, k=10, return_set=False):
     """
     neighbors = []
     cur_k = 0
+    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
     for i in range(start, end):
-        heapq.heappush(neighbors, (-np.linalg.norm(query-data[i]), i))
+        heapq.heappush(neighbors, (-dist_func(query, data[i]), i))
         cur_k += 1
         if cur_k > k:
             heapq.heappop(neighbors)
@@ -49,7 +56,13 @@ def brute_force_knn(data, start, end, query, k=10, return_set=False):
     dists = [-d for (d, _) in neighbors]
     return neighbor_ids, dists
 
-def get_ground_truth_batch(data, start, end, queries, k=10, dataset_name="sift", size=10000):
+def get_or_create_ground_truth_batch(path, data, start, end, queries, save=False, k=10, dataset_name="sift", size=10000, metric="l2"):
+    if path is not None:
+        return np.load(path/'ids.npy'), np.load(path/'dists.npy')
+    path = Path('/storage/sylziyuz/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))).expanduser()
+    if save:
+        path.mkdir(parents=True, exist_ok=True)
+    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
     all_neighbors = [[] for _ in queries]
     all_neighbor_ids = [[] for _ in queries]
     all_dists = [[] for _ in queries]
@@ -57,7 +70,7 @@ def get_ground_truth_batch(data, start, end, queries, k=10, dataset_name="sift",
         #neighbors = []
         cur_k = 0
         for i in range(start, end):
-            heapq.heappush(all_neighbors[j], (-np.linalg.norm(q-data[i]), i))
+            heapq.heappush(all_neighbors[j], (-dist_func(q, data[i]), i))
             cur_k += 1
             if cur_k > k:
                 heapq.heappop(all_neighbors[j])
@@ -65,13 +78,22 @@ def get_ground_truth_batch(data, start, end, queries, k=10, dataset_name="sift",
     for j, neighbors in enumerate(all_neighbors):
         all_neighbor_ids[j] = [i for (_, i) in neighbors]
         all_dists[j] = [-d for (d, _) in neighbors]
+    
+    if save:
+        np.save(path/'ids.npy', all_neighbor_ids)
+        np.save(path/'dists.npy', all_dists)
+
     return all_neighbor_ids, all_dists
 
-def get_or_create_rolling_update_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10):
+
+
+def get_or_create_rolling_update_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2"):
     if path is not None:
         return np.load(path/'ids.npy'), np.load(path/'dists.npy')
-    path = Path('~/data/ann_rolling_update_gt/'+dataset_name+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
-    path.mkdir(parents=True, exist_ok=True)
+    path = Path('/storage/sylziyuz/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
+    if save:
+        path.mkdir(parents=True, exist_ok=True)
+    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
     batch_size = len(data) // batch_num
     bigger_k = 5 * k
     #np.save(path/'x', x)
@@ -85,7 +107,7 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
     # Maybe implement KD heap here lmao
     for i, v in enumerate(data):
         for j, q in enumerate(queries):
-            all_neighbors[j].add((-np.linalg.norm(q-data[i]), i))
+            all_neighbors[j].add((-dist_func(q, data[i]), i))
             if len(all_neighbors[j]) > bigger_k:
                 min_elem = (math.inf, -1)
                 for kk in all_neighbors[j]:
@@ -111,7 +133,7 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
                 continue
             for i in range(b, b + batch_size):
                 # insert the new things
-                neg_new_dist = -np.linalg.norm(q-data_to_update[i])
+                neg_new_dist = -dist_func(q, data_to_update[i])
                 min_elem = (math.inf, -1)
                 for kk in all_neighbors[j]:
                     if kk[0] < min_elem[0]:
@@ -139,7 +161,7 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
 def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10):
     if path is not None:
         return np.load(path/'ids.npy'), np.load(path/'dists.npy')
-    path = Path('~/data/ann_rolling_update_gt/'+dataset_name+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
+    path = Path('/storage/sylziyuz/ann_batch_insert_gt/'+dataset_name+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
     path.mkdir(parents=True, exist_ok=True)
     batch_size = len(data) // batch_num
     bigger_k = 5 * k
@@ -416,25 +438,46 @@ def static_recall_experiment(data, queries, randomize_queries = False):
         sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
         queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
-    plans=[]
-    all_gt_neighbors,_= get_or_create_rolling_update_ground_truth(
-        path=None,
+    plans = []
+    metric = "cosine"
+    dataset_name = "redcaps"
+    """
+    all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
+        path=Path('/storage/sylziyuz/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
+        #path=None,
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
-        save=True,
-        dataset_name="sample"
+        save=False,
+        dataset_name="redcaps",
+        metric=metric,
     )
     lookup_gt_neighbors = all_gt_neighbors[-1]
+    lookup_gt_dists = all_gt_dists[-1]
+    """
+    lookup_gt_neighbors, lookup_gt_dists = get_or_create_ground_truth_batch(
+        path=Path('/storage/sylziyuz/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))).expanduser(),
+        data=data,
+        start=0,
+        end=size,
+        queries=queries,
+        save=False,
+        k=10,
+        dataset_name="redcaps",
+        size=1000000,
+        metric="cosine",
+    )
+    print(lookup_gt_neighbors[0])
+    print(lookup_gt_dists[0])
 
     plans.append(("Search", data, queries, initial_lookup, lookup_gt_neighbors))
 
     run_dynamic_test(
         plans,
-        gt_neighbors,
-        gt_dists,
+        lookup_gt_neighbors,
+        lookup_gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_1M_fresh_update_no_consolidation_baseline"
+        experiment_name="redcaps_1m_build_baseline_cosine_corrected",
         batch_build=True,
         batch_build_data=data,
         batch_build_tags=[i for i in range(1, len(data)+1)]
@@ -452,21 +495,23 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
 
     indexing_plan = [(0, i) for i in range(size)]
     initial_lookup = [(1, i) for i in range(len(queries))]
+    metric = "cosine"
     
     print(len(data), size)
+    dataset_name = "redcaps"
 
     if randomize_queries:
         sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
         queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
-    plans = [("Indexing", data, queries, indexing_plan, None)]
-    # plans=[]
+    # plans = [("Indexing", data, queries, indexing_plan, None)]
+    plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
-        path=None,
+        path=Path('/storage/sylziyuz/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
-        save=True,
+        save=False,
         dataset_name="redcaps"
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
@@ -488,10 +533,10 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         gt_neighbors,
         gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_1M_fresh_update_no_consolidation_baseline"
-        #batch_build=True,
-        #batch_build_data=data[:5000],
-        #batch_build_tags=[i for i in range(1, 5001)]
+        experiment_name="redcaps_1M_fresh_update_no_consolidation_cosine",
+        batch_build=True,
+        batch_build_data=data[:size],
+        batch_build_tags=[i for i in range(1, size+1)]
         )
 
     # ============================== get static recall ==============================
@@ -589,11 +634,13 @@ def random_point_recall_improvement_experiment(data, queries, randomize_queries 
         sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
         queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
-    gt_neighbors, gt_dists = get_ground_truth_batch(
+    gt_neighbors, gt_dists = get_or_create_ground_truth_batch(
+        None,
         data,
         0,
         size,
         queries,
+        save=False,
         k=10,
         dataset_name="sift",
         size=size
@@ -645,11 +692,10 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
     medoid_distances = [np.linalg.norm(medoid_vector - v) for v in data]
     # sort the data from the furthest to the closest to the medoid
     sorted_data = [v for _, v in sorted(zip(medoid_distances, data), key=lambda pair: -pair[0], reverse=False)]
-    #get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_name="sift", size=10000):
     indexing_plan = [(0, i) for i in range(len(data))]
     lookup = [(1, i) for i in range(len(queries))]
     plans = [] if batch_build else [("Indexing", np.array(sorted_data), queries, indexing_plan, None)]
-    gt_neighbors, gt_dists = get_ground_truth_batch(sorted_data, 0, len(sorted_data), queries, k=10, dataset_name="sift", size=len(data))
+    gt_neighbors, gt_dists = get_or_create_ground_truth_batch(None, sorted_data, 0, len(sorted_data), queries, save=False, k=10, dataset_name="sift", size=len(data))
     plans.append(("Search", np.array(sorted_data), queries, lookup, gt_neighbors))
     run_dynamic_test(
         plans, gt_neighbors, gt_dists,
@@ -660,7 +706,7 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
     indexing_plan = [(0, i) for i in range(len(data))]
     lookup = [(1, i) for i in range(len(queries))]
     plans = [] if batch_build else [("Indexing", data, queries, indexing_plan, None)]
-    gt_neighbors2, gt_dists2 = get_ground_truth_batch(data, 0, len(data), queries, k=10, dataset_name="sift", size=len(data))
+    gt_neighbors2, gt_dists2 = get_or_create_ground_truth_batch(None, data, 0, len(data), queries, save=False, k=10, dataset_name="sift", size=len(data))
     print(gt_neighbors[0], gt_neighbors2[0])
     print(gt_dists[0], gt_dists2[0])
     plans.append(("Search", data, queries, lookup, gt_neighbors2))
@@ -674,10 +720,10 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
 
 
 # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
-data = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular.npy")
+data = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-angular.npy")
 # np.random.shuffle(data)
 data = data[:1000000]
-queries = np.load("/home/ubuntu/data/new_filtered_ann_datasets/redcaps-512-angular_queries.npy")
+queries = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-angular_queries.npy")
 print(len(queries))
 small_batch_gradual_update_experiment(data, queries, False)
 #sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=True, batch_build=True)
