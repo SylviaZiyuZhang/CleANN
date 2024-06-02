@@ -484,7 +484,7 @@ def static_recall_experiment(data, queries, randomize_queries = False):
         )
 
 
-def small_batch_gradual_update_experiment(data, queries, randomize_queries = False):
+def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size, metric="l2", randomize_queries = False):
     # np.random.shuffle(data)
     size = 500000
     data = data[:2 * size]
@@ -507,12 +507,12 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
     # plans = [("Indexing", data, queries, indexing_plan, None)]
     plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
-        path=Path('/storage/sylziyuz/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
+        path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
         save=False,
-        dataset_name="redcaps"
+        dataset_name=dataset_name
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
     initial_lookup_gt_dists = all_gt_dists[0]
@@ -527,13 +527,14 @@ def small_batch_gradual_update_experiment(data, queries, randomize_queries = Fal
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
         plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
-
+    
+    experiment_name = "{}_{}_{}_{}".format(dataset_name, size, setting_name, metric)
     run_dynamic_test(
         plans,
         gt_neighbors,
         gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_1M_fresh_update_no_consolidation_cosine",
+        experiment_name=experiment_name,
         batch_build=True,
         batch_build_data=data[:size],
         batch_build_tags=[i for i in range(1, size+1)]
@@ -725,5 +726,5 @@ data = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-
 data = data[:1000000]
 queries = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-angular_queries.npy")
 print(len(queries))
-small_batch_gradual_update_experiment(data, queries, False)
+small_batch_gradual_update_experiment(data, queries, dataset_name="redcaps", gt_data_prefix="/storage/sylziyuz", setting_name="setting_name", size=len(data)/2, metric="l2", False)
 #sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=True, batch_build=True)
