@@ -99,9 +99,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         if batch_build:
             assert(len(batch_build_data) == len(batch_build_tags))
             dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
-            print("Finished building")
-            print("huh?")
-
 
         all_recalls_list = []
         all_latencies_list = []
@@ -138,6 +135,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
                 query_complexity=query_complexity,
                 num_threads=num_threads,
                 consolidation_interval=consolidate,
+                plan_id=cur_plan,
             )
             # print("Finished plan", plan_name)
             if optional_gt is not None:
@@ -187,19 +185,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         }
         with open(experiment_name+'_result_data.json', 'w') as f:
             json.dump(result, f)
-        
-        print(
-            f"Recall with {num_threads} threads: " + str(list(zip(recall_keys, all_recalls)))
-        )
-        print(all_recalls)
-        
-        print(
-            f"Times with {num_threads} threads: " + str(list(zip(time_keys, new_times)))
-        )
-        print(
-            f"Speedups with {num_threads} threads: "
-            + str(list(zip(time_keys, speedups)))
-        )
 
         start_plotting_index = -1
         # Amputate the recalls
