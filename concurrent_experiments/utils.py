@@ -108,7 +108,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         plan_names_list = []
         plan_ids_list = []
         cur_plan = 0
-        for plan_name, data, queries, update_list, optional_gt in plans:
+        for plan_name, data, queries, update_list, optional_gt, plan_consolidate in plans:
             # print("Starting "+ plan_name)
             start_plan_time = time.time()
             recall_count = 0
@@ -123,9 +123,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
                 else:
                     actual_update_list.append(it)
             
-            # consolidate = len(update_list) - 1 if cur_plan % 2 == 1 else 0
-            consolidate = 1 if plan_name == "Consolidate" else 0
-            # print("consolidate: ", consolidate)
+            consolidate = 1 if plan_consolidate else 0
+
             results = dynamic_test(
                 dynamic_index._index,
                 data,
@@ -136,7 +135,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
                 query_k=query_k,
                 query_complexity=query_complexity,
                 num_threads=num_threads,
-                consolidation_interval=consolidate,
+                consolidate=consolidate,
                 plan_id=cur_plan,
             )
             # print("Finished plan", plan_name)
@@ -187,19 +186,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         }
         with open(experiment_name+'_result_data.json', 'w') as f:
             json.dump(result, f)
-        
-        print(
-            f"Recall with {num_threads} threads: " + str(list(zip(recall_keys, all_recalls)))
-        )
-        print(all_recalls)
-        
-        print(
-            f"Times with {num_threads} threads: " + str(list(zip(time_keys, new_times)))
-        )
-        print(
-            f"Speedups with {num_threads} threads: "
-            + str(list(zip(time_keys, speedups)))
-        )
 
         start_plotting_index = -1
         # Amputate the recalls

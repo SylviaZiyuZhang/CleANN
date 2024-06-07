@@ -28,6 +28,8 @@ and
 ```
 sudo apt install libmkl-full-dev
 ```
+You may also need to tell CMake where omp is installed in `CMakeLists.txt` by setting `POSSIBLE_OMP_PATHS`.
+
 See the original readme (https://github.com/microsoft/DiskANN/tree/main#readme).
 
 To develop in vscode and have syntax highlighting work (tested with the clangd extension), run
