@@ -9,7 +9,7 @@ from utils import parse_ann_benchmarks_hdf5, run_dynamic_test
 import concurrent.futures
 from pathlib import Path
 
-ROLLING_UPDATE_GET_STATIC_BASELINE = False
+ROLLING_UPDATE_GET_STATIC_BASELINE = True
 
 def get_cosine_dist(A, B):
     return - np.dot(A,B) / (np.linalg.norm(A) * np.linalg.norm(B))
@@ -433,12 +433,6 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
     indexing_plan = [(0, i) for i in range(size)]
     initial_lookup = [(1, i) for i in range(len(queries))]
 
-    """
-    if randomize_queries:
-        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
-        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
-    """
-
     plans = []
     lookup_gt_neighbors, lookup_gt_dists = get_or_create_ground_truth_batch(
         path=Path(gt_data_prefix+'/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))).expanduser(),
@@ -486,7 +480,8 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         data_to_update=data[size:2 * size],
         queries=queries,
         save=False,
-        dataset_name=dataset_name
+        dataset_name=dataset_name,
+        metric=metric,
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
     initial_lookup_gt_dists = all_gt_dists[0]
@@ -550,11 +545,13 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
     plans = [("Indexing", data, queries, indexing_plan, None, False)]
     # plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_insert_only_ground_truth(
-        path=None,
+        path=Path(gt_data_prefix +'/ann_batch_insert_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
-        save=False
+        save=True,
+        dataset_name=dataset_name,
+        metric=metric,
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
     initial_lookup_gt_dists = all_gt_dists[0]
@@ -581,15 +578,20 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
         )
 
     # ============================== get static recall ==============================
-    # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
-    # reference updated recall exists
-
-    """
-    for i in range(0, size, update_batch_size):
-        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
-        gt_dists =all_gt_dists[1 + i // update_batch_size]
-        get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
-    """
+    if ROLLING_UPDATE_GET_STATIC_BASELINE:
+        for i in range(0, size, update_batch_size):
+            lookup = [(1, i) for i in range(len(queries))]
+            experiment_name = "{}_{}_{}_{}_batch_insert_static_baseline_{}_{}".format(dataset_name, size, setting_name, metric, 0, i+size)
+            run_dynamic_test(
+                [("Search", data, queries, lookup, gt_neighbors, False)],
+                all_gt_neighbors[1 + i // update_batch_size],
+                all_gt_dists[1 + i // update_batch_size],
+                max_vectors=len(data),
+                experiment_name=experiment_name,
+                batch_build=True,
+                batch_build_data=data[:i+size],
+                batch_build_tags=[i for i in range(1, i+size+1)]
+            )
 
 def random_point_recall_improvement_experiment(data, queries, randomize_queries = False):
     """
