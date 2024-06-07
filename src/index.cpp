@@ -1841,7 +1841,6 @@ void Index<T, TagT, LabelT>::build(const T *data, const size_t num_points_to_loa
     }
 
     build_with_data_populated(tags);
-    std::cout << "Finishing Index::build" << std::endl;
 }
 
 template <typename T, typename TagT, typename LabelT>

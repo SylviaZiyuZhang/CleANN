@@ -336,20 +336,20 @@ def close_insertion_experiment(data, queries):
             update_gt_after.append([])
     
     plans = [
-        ("Indexing", data, queries, indexing_plan, None),
-        ("Just Queries Before", data, queries, query_plan, gt_before),
-        ("Concur Before", data, queries, update_plan, update_gt_before),
-        ("Just Queries After", data, queries, query_plan, gt_after),
+        ("Indexing", data, queries, indexing_plan, None, False),
+        ("Just Queries Before", data, queries, query_plan, gt_before, False),
+        ("Concur Before", data, queries, update_plan, update_gt_before, False),
+        ("Just Queries After", data, queries, query_plan, gt_after, False),
     ]
     print("Calling run_dynamic_test")
     # print(update_plan[10:])
     run_dynamic_test(plans, update_gt_before, dists_before, max_vectors=len(data))
 
     plans = [
-        ("Indexing", data, queries, indexing_plan, None),
-        ("Just Queries Before", data, queries, query_plan, gt_before),
-        ("Concur After", data, queries, update_plan, update_gt_after),
-        ("Just Queries After", data, queries, query_plan, gt_before),
+        ("Indexing", data, queries, indexing_plan, None, False),
+        ("Just Queries Before", data, queries, query_plan, gt_before, False),
+        ("Concur After", data, queries, update_plan, update_gt_after, False),
+        ("Just Queries After", data, queries, query_plan, gt_before, False),
     ]
     run_dynamic_test(plans, update_gt_after, dists_after, max_vectors=len(data))
 
@@ -397,24 +397,24 @@ def half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists):
     # indexing_plan = [(0, i) for i in range(len(data))]
 
     plans = [
-        ("Indexing", data, queries, indexing_plan, None),
-        ("Initial Search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
-        ("Update", data, queries, update_plan, update_plan_gt),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt),
+        ("Indexing", data, queries, indexing_plan, None, False),
+        ("Initial Search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
+        ("Update", data, queries, update_plan, update_plan_gt, False),
+        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
     ]
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
@@ -423,8 +423,8 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
     indexing_plan = [(0, i) for i in range(start, end)]
     lookup = [(1, i) for i in range(len(queries))]
     
-    plans = [("Indexing", data, queries, indexing_plan, None)]
-    plans.append(("Search", data, queries, lookup, gt_neighbors))
+    plans = [("Indexing", data, queries, indexing_plan, None, False)]
+    plans.append(("Search", data, queries, lookup, gt_neighbors, False))
 
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
@@ -455,7 +455,7 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
         metric=metric,
     )
 
-    plans.append(("Search", data, queries, initial_lookup, lookup_gt_neighbors))
+    plans.append(("Search", data, queries, initial_lookup, lookup_gt_neighbors, False))
 
     run_dynamic_test(
         plans,
@@ -486,7 +486,7 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
         queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
-    # plans = [("Indexing", data, queries, indexing_plan, None)]
+    # plans = [("Indexing", data, queries, indexing_plan, None, False)]
     plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
         path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
@@ -505,10 +505,10 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
             insert_id = delete_id + size
             update_plan.append((0, insert_id))
             update_plan.append((2, delete_id))
-        plans.append(("Update", data, queries, update_plan, None))
+        plans.append(("Update", data, queries, update_plan, None, False))
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
-        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
+        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, False))
     
     experiment_name = "{}_{}_{}_{}_rolling_update".format(dataset_name, size, setting_name, metric)
     run_dynamic_test(
@@ -551,7 +551,7 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_q
         sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
         queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
-    plans = [("Indexing", data, queries, indexing_plan, None)]
+    plans = [("Indexing", data, queries, indexing_plan, None, False)]
     # plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_insert_only_ground_truth(
         path=None,
@@ -568,10 +568,10 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_q
             delete_id = i + j
             insert_id = delete_id + size
             update_plan.append((0, insert_id))
-        plans.append(("Insert", data, queries, update_plan, None))
+        plans.append(("Insert", data, queries, update_plan, None, False))
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
-        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors))
+        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, False))
 
     run_dynamic_test(
         plans,
@@ -643,7 +643,7 @@ def random_point_recall_improvement_experiment(data, queries, randomize_queries 
         print(data.shape)
         return
 
-    plans = [("Indexing", data, queries, indexing_plan, None)]
+    plans = [("Indexing", data, queries, indexing_plan, None, False)]
 
     for i in range(0, n_update_batch):
         update_plan = []
@@ -655,9 +655,9 @@ def random_point_recall_improvement_experiment(data, queries, randomize_queries 
             id = size + i*update_batch_size + j
             update_plan.append((2, id))
             assert(id < len(data))
-        plans.append(("Update", data, queries, update_plan, None))
-        plans.append(("Consolidate", data, queries, [], None))
-        plans.append(("Search"+str(i), data, queries, lookup, gt_neighbors))
+        plans.append(("Update", data, queries, update_plan, None, False))
+        plans.append(("Consolidate", data, queries, [], None, False))
+        plans.append(("Search"+str(i), data, queries, lookup, gt_neighbors, False))
         
     run_dynamic_test(
         plans,
@@ -677,9 +677,9 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
     sorted_data = [v for _, v in sorted(zip(medoid_distances, data), key=lambda pair: -pair[0], reverse=False)]
     indexing_plan = [(0, i) for i in range(len(data))]
     lookup = [(1, i) for i in range(len(queries))]
-    plans = [] if batch_build else [("Indexing", np.array(sorted_data), queries, indexing_plan, None)]
+    plans = [] if batch_build else [("Indexing", np.array(sorted_data), queries, indexing_plan, None, False)]
     gt_neighbors, gt_dists = get_or_create_ground_truth_batch(None, sorted_data, 0, len(sorted_data), queries, save=False, k=10, dataset_name="sift", size=len(data))
-    plans.append(("Search", np.array(sorted_data), queries, lookup, gt_neighbors))
+    plans.append(("Search", np.array(sorted_data), queries, lookup, gt_neighbors, False))
     run_dynamic_test(
         plans, gt_neighbors, gt_dists,
         batch_build=batch_build,
@@ -688,11 +688,11 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
         max_vectors=len(data), experiment_name="sorted_adversarial_10000_")
     indexing_plan = [(0, i) for i in range(len(data))]
     lookup = [(1, i) for i in range(len(queries))]
-    plans = [] if batch_build else [("Indexing", data, queries, indexing_plan, None)]
+    plans = [] if batch_build else [("Indexing", data, queries, indexing_plan, None, False)]
     gt_neighbors2, gt_dists2 = get_or_create_ground_truth_batch(None, data, 0, len(data), queries, save=False, k=10, dataset_name="sift", size=len(data))
     print(gt_neighbors[0], gt_neighbors2[0])
     print(gt_dists[0], gt_dists2[0])
-    plans.append(("Search", data, queries, lookup, gt_neighbors2))
+    plans.append(("Search", data, queries, lookup, gt_neighbors2, False))
     run_dynamic_test(
         plans, gt_neighbors2, gt_dists2,
         batch_build=batch_build,
