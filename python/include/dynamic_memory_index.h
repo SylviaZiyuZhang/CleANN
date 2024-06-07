@@ -46,6 +46,7 @@ class DynamicMemoryIndex
                                             uint32_t num_threads);
     void consolidate_delete();
     size_t num_points();
+    void print_status();
 
 
   private:

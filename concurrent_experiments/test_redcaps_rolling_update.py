@@ -424,7 +424,13 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
     plans = [("Indexing", data, queries, indexing_plan, None, False)]
     plans.append(("Search", data, queries, lookup, gt_neighbors, False))
 
-    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name="redcaps_no_shuffle_10000_fresh_update_static_recall_"+str(start)
+    )
 
 def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
     data = data[:2 * size]
@@ -508,8 +514,11 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         batch_build_data=data[:size],
         batch_build_tags=[i for i in range(1, size+1)]
         )
+    
+    
 
     # ============================== get static recall ==============================
+
     if ROLLING_UPDATE_GET_STATIC_BASELINE:
         for i in range(0, size, update_batch_size):
             lookup = [(1, i) for i in range(len(queries))]
@@ -524,7 +533,6 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
                 batch_build_data=data[i:i+size],
                 batch_build_tags=[i for i in range(i+1, i+size+1)]
             )
-        
 
 
 def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
@@ -575,7 +583,7 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
         batch_build=True,
         batch_build_data=data[:size],
         batch_build_tags=[i for i in range(1, size+1)]
-        )
+    )
 
     # ============================== get static recall ==============================
     if ROLLING_UPDATE_GET_STATIC_BASELINE:
@@ -697,7 +705,6 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
         batch_build_tags=[i for i in range(1, len(data)+1)],
         max_vectors=len(data), experiment_name="sorted_adversarial_10000_baseline_")
 
-
 def run_one_experiment_manual():
     # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
     data = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-angular.npy")
@@ -707,3 +714,4 @@ def run_one_experiment_manual():
     print(len(queries))
     small_batch_gradual_update_experiment(data, queries, dataset_name="redcaps", gt_data_prefix="/storage/sylziyuz", setting_name="setting_name", size=len(data)/2, metric="l2")
     #sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=True, batch_build=True)
+
