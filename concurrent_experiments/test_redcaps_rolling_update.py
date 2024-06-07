@@ -9,26 +9,26 @@ from utils import parse_ann_benchmarks_hdf5, run_dynamic_test
 import concurrent.futures
 from pathlib import Path
 
-#path = Path('~/data/tmp/').expanduser()
-#path.mkdir(parents=True, exist_ok=True)
-
-def calculate_medoid(data):
-    # This selects the vector from the dataset that is the medoid
-    # (instead of calculating the medoid in the spatial sense)
-    distance_matrix = np.zeros((len(data), len(data)))
-    for i in range(len(data)):
-        for j in range(i, len(data)):
-            dist = np.linalg.norm(data[j]-data[i])
-            distance_matrix[i][j] = dist
-            distance_matrix[j][i] = dist
-    medoid_id = np.argmin(distance_matrix.sum(axis=0))
-    return data[medoid_id]
+ROLLING_UPDATE_GET_STATIC_BASELINE = False
 
 def get_cosine_dist(A, B):
     return - np.dot(A,B) / (np.linalg.norm(A) * np.linalg.norm(B))
 
 def get_l2_dist(A, B):
     return np.linalg.norm(A-B)
+
+def calculate_medoid(data, metric="l2"):
+    # This selects the vector from the dataset that is the medoid
+    # (instead of calculating the medoid in the spatial sense)
+    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+    distance_matrix = np.zeros((len(data), len(data)))
+    for i in range(len(data)):
+        for j in range(i, len(data)):
+            dist = dist_func(data[j], data[i])
+            distance_matrix[i][j] = dist
+            distance_matrix[j][i] = dist
+    medoid_id = np.argmin(distance_matrix.sum(axis=0))
+    return data[medoid_id]
 
 def brute_force_knn(data, start, end, query, k=10, return_set=False, metric="l2"):
     """
@@ -69,7 +69,6 @@ def get_or_create_ground_truth_batch(path, data, start, end, queries, save=False
         all_neighbor_ids = [[] for _ in queries]
         all_dists = [[] for _ in queries]
         for j, q in enumerate(queries):
-            #neighbors = []
             cur_k = 0
             for i in range(start, end):
                 heapq.heappush(all_neighbors[j], (-dist_func(q, data[i]), i))
@@ -100,8 +99,6 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
         dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
         batch_size = len(data) // batch_num
         bigger_k = 5 * k
-        #np.save(path/'x', x)
-        #np.save(path/'y', y)
         assert len(data) == len(data_to_update)
         all_results_ids = [] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
         all_results_dists = []
@@ -162,60 +159,34 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
         return all_results_ids, all_results_dists
 
 
-def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10):
-    if path is not None:
+def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2"):
+    if path is None:
+        path = Path('/storage/sylziyuz/ann_batch_insert_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
+    try:
         return np.load(path/'ids.npy'), np.load(path/'dists.npy')
-    path = Path('/storage/sylziyuz/ann_batch_insert_gt/'+dataset_name+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
-    path.mkdir(parents=True, exist_ok=True)
-    batch_size = len(data) // batch_num
-    bigger_k = 5 * k
-    #np.save(path/'x', x)
-    #np.save(path/'y', y)
-    assert len(data) == len(data_to_update)
-    all_results_ids = [] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
-    all_results_dists = []
-    all_neighbors = [set() for _ in queries]
-    # keep the same section of data in cache for locality for when no update has happened
-    # first compute when no update has happened
-    # Maybe implement KD heap here lmao
-    for i, v in enumerate(data):
-        for j, q in enumerate(queries):
-            all_neighbors[j].add((-np.linalg.norm(q-data[i]), i))
-            if len(all_neighbors[j]) > bigger_k:
-                min_elem = (math.inf, -1)
-                for kk in all_neighbors[j]:
-                    if kk[0] < min_elem[0]:
-                        min_elem = kk
-                all_neighbors[j].remove(min_elem)
-    
-    all_neighbor_ids = [[] for _ in queries]
-    all_dists = [[] for _ in queries]
-    for j, neighbors in enumerate(all_neighbors):
-        knn = heapq.nlargest(k, list(neighbors))
-        all_neighbor_ids[j] = [i for (_, i) in knn]
-        all_dists[j] = [-d for (d, _) in knn]
-    all_results_ids.append(all_neighbor_ids)
-    all_results_dists.append(all_dists)
-
-    # Then, iteratively filter out ids that are too small to mimic the deletion
-    for b in range(0, len(data), batch_size):
-        for j, q in enumerate(queries):
-            # all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
-            if len(all_neighbors[j]) < k:
-                all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
-                continue
-            for i in range(b, b + batch_size):
-                # insert the new things
-                neg_new_dist = -np.linalg.norm(q-data_to_update[i])
-                min_elem = (math.inf, -1)
-                for kk in all_neighbors[j]:
-                    if kk[0] < min_elem[0]:
-                        min_elem = kk
-                if min_elem[0] < neg_new_dist:
-                    all_neighbors[j].add((neg_new_dist, i+len(data)))
-                    if len(all_neighbors[j]) >= bigger_k:
-                        all_neighbors[j].remove(min_elem)
-
+    except FileNotFoundError:
+        if save:
+            path.mkdir(parents=True, exist_ok=False)
+        dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+        batch_size = len(data) // batch_num
+        bigger_k = 5 * k
+        assert len(data) == len(data_to_update)
+        all_results_ids = [] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
+        all_results_dists = []
+        all_neighbors = [set() for _ in queries]
+        # keep the same section of data in cache for locality for when no update has happened
+        # first compute when no update has happened
+        # Maybe implement KD heap here lmao
+        for i, v in enumerate(data):
+            for j, q in enumerate(queries):
+                all_neighbors[j].add((-distfunc(q, data[i]), i))
+                if len(all_neighbors[j]) > bigger_k:
+                    min_elem = (math.inf, -1)
+                    for kk in all_neighbors[j]:
+                        if kk[0] < min_elem[0]:
+                            min_elem = kk
+                    all_neighbors[j].remove(min_elem)
+        
         all_neighbor_ids = [[] for _ in queries]
         all_dists = [[] for _ in queries]
         for j, neighbors in enumerate(all_neighbors):
@@ -224,10 +195,37 @@ def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_up
             all_dists[j] = [-d for (d, _) in knn]
         all_results_ids.append(all_neighbor_ids)
         all_results_dists.append(all_dists)
-    
-    if save:
-        raise NotImplementedError
-    return all_results_ids, all_results_dists
+
+        # Then, iteratively filter out ids that are too small to mimic the deletion
+        for b in range(0, len(data), batch_size):
+            for j, q in enumerate(queries):
+                if len(all_neighbors[j]) < k:
+                    all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
+                    continue
+                for i in range(b, b + batch_size):
+                    # insert the new things
+                    neg_new_dist = -dist_func(q, data_to_update[i])
+                    min_elem = (math.inf, -1)
+                    for kk in all_neighbors[j]:
+                        if kk[0] < min_elem[0]:
+                            min_elem = kk
+                    if min_elem[0] < neg_new_dist:
+                        all_neighbors[j].add((neg_new_dist, i+len(data)))
+                        if len(all_neighbors[j]) >= bigger_k:
+                            all_neighbors[j].remove(min_elem)
+
+            all_neighbor_ids = [[] for _ in queries]
+            all_dists = [[] for _ in queries]
+            for j, neighbors in enumerate(all_neighbors):
+                knn = heapq.nlargest(k, list(neighbors))
+                all_neighbor_ids[j] = [i for (_, i) in knn]
+                all_dists[j] = [-d for (d, _) in knn]
+            all_results_ids.append(all_neighbor_ids)
+            all_results_dists.append(all_dists)
+        if save:
+            np.save(path/'ids.npy', all_results_ids)
+            np.save(path/'dists.npy', all_results_dists)
+        return all_results_ids, all_results_dists
     
 
 def get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_name="sift", size=10000):
@@ -448,7 +446,7 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
         start=0,
         end=2*size,
         queries=queries,
-        save=False,
+        save=True,
         k=10,
         dataset_name=dataset_name,
         size=2*size,
@@ -481,12 +479,6 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
     indexing_plan = [(0, i) for i in range(size)]
     initial_lookup = [(1, i) for i in range(len(queries))]
 
-    randomize_queries = False
-    if randomize_queries:
-        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
-        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
-
-    # plans = [("Indexing", data, queries, indexing_plan, None, False)]
     plans=[]
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
         path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
@@ -508,7 +500,7 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         plans.append(("Update", data, queries, update_plan, None, False))
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
-        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, False))
+        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, True))
     
     experiment_name = "{}_{}_{}_{}_rolling_update".format(dataset_name, size, setting_name, metric)
     run_dynamic_test(
@@ -523,23 +515,30 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         )
 
     # ============================== get static recall ==============================
-    # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
-    # reference updated recall exists
-    """
-    for i in range(0, size, update_batch_size):
-        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
-        gt_dists =all_gt_dists[1 + i // update_batch_size]
-        get_static_recall(data, queries, i, i+size, gt_neighbors, gt_dists)
-    """
+    if ROLLING_UPDATE_GET_STATIC_BASELINE:
+        for i in range(0, size, update_batch_size):
+            lookup = [(1, i) for i in range(len(queries))]
+            experiment_name = "{}_{}_{}_{}_rolling_update_static_baseline_{}_{}".format(dataset_name, size, setting_name, metric, i, i+size)
+            run_dynamic_test(
+                [("Search", data, queries, lookup, gt_neighbors, False)],
+                all_gt_neighbors[1 + i // update_batch_size],
+                all_gt_dists[1 + i // update_batch_size],
+                max_vectors=len(data),
+                experiment_name=experiment_name,
+                batch_build=True,
+                batch_build_data=data[i:i+size],
+                batch_build_tags=[i for i in range(i+1, i+size+1)]
+            )
+        
 
 
-def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_queries = False):
-    # np.random.shuffle(data)
-    size = 5000
+def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
+    assert(size > 500)
+    assert(size % 100 == 0)
+    assert(len(data) >= size * 2)
     data = data[:2 * size]
-    # data_to_update = data[size:2 * size]
-    update_batch_size = 50
     n_update_batch = 100
+    update_batch_size = size // 100
     n_queries = len(queries)
 
     indexing_plan = [(0, i) for i in range(size)]
@@ -547,9 +546,6 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_q
     
     print(len(data), size)
 
-    if randomize_queries:
-        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
-        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
     plans = [("Indexing", data, queries, indexing_plan, None, False)]
     # plans=[]
@@ -578,15 +574,16 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, randomize_q
         gt_neighbors,
         gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_1M_update_no_consolidation_baseline"
-        #batch_build=True,
-        #batch_build_data=data[:5000],
-        #batch_build_tags=[i for i in range(1, 5001)]
+        experiment_name = "{}_{}_{}_{}_batch_insert".format(dataset_name, size, setting_name, metric),
+        batch_build=True,
+        batch_build_data=data[:size],
+        batch_build_tags=[i for i in range(1, size+1)]
         )
 
     # ============================== get static recall ==============================
     # This requires the data to be not shuffled. Currently only 5000 redcaps unshuffled
     # reference updated recall exists
+
     """
     for i in range(0, size, update_batch_size):
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
@@ -613,9 +610,6 @@ def random_point_recall_improvement_experiment(data, queries, randomize_queries 
     indexing_plan = [(0, i) for i in range(size)]
     lookup = [(1, i) for i in range(len(queries))]
 
-    if randomize_queries:
-        sampled_vectors = data[np.random.choice(data.shape[0], n_queries, replace=False)]
-        queries = sampled_vectors + np.random.normal(loc=0, scale=1, size=sampled_vectors.shape)
 
     gt_neighbors, gt_dists = get_or_create_ground_truth_batch(
         None,
@@ -670,9 +664,10 @@ def random_point_recall_improvement_experiment(data, queries, randomize_queries 
         #batch_build_tags=[i for i in range(1, size+1)]
         )
 
-def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=False, batch_build=False):
-    medoid_vector = calculate_medoid(data)
-    medoid_distances = [np.linalg.norm(medoid_vector - v) for v in data]
+def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=False, batch_build=False, metric="l2"):
+    medoid_vector = calculate_medoid(data, metric)
+    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+    medoid_distances = [dist_func(medoid_vector, v) for v in data]
     # sort the data from the furthest to the closest to the medoid
     sorted_data = [v for _, v in sorted(zip(medoid_distances, data), key=lambda pair: -pair[0], reverse=False)]
     indexing_plan = [(0, i) for i in range(len(data))]
