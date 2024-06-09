@@ -32,6 +32,7 @@
 #define INSERT_FIXES_DELETES true
 #define SEARCH_FIXED_DELETES true
 #define COMPLICATED_DYNAMIC_DELETE false
+#define LAYER_BASED_PATH_COMPRESSION false
 
 const bool COMPRESS_DEBUG = false;
 
@@ -942,9 +943,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                 distance = _data_store->get_distance(aligned_query, id);
             }
             Neighbor nn = Neighbor(id, distance);
-            // TODO (SylviaZiyuZhang): FIXME - NeighborPriorityQueue is doing work for
-            // edge analytics. Fix here for performance sensitive experiments.
-            best_L_nodes.insert(nn, id);
+            best_L_nodes.insert(nn, nn);
             #if EDGE_ANALYTICS_ENABLED
             depth_record[id] = 0;
             #endif
@@ -959,16 +958,26 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     #endif
     // has_unexpanded_node and closest_unexpanded look at the top of the priority
     // queue without taking them off the queue
+    #if LAYER_BASED_PATH_COMPRESSION
+    float max_dist = 0.0;
+    std::unordered_map<uint32_t, uint32_t> pred_map;
+    std::vector<uint32_t> compression_starts;
+    std::vector<uint32_t> compression_ends;
+    #endif
     while (best_L_nodes.has_unexpanded_node())
     {
         hops ++;
         auto nbr_info = best_L_nodes.closest_unexpanded();
         auto nbr = nbr_info.first;
-        auto pred_id = nbr_info.second;
+        auto pred_id = nbr_info.second.id;
         auto n = nbr.id;
-        if (pred_id == n && n != 1000000) {
-            printf("haha %u\n", n);
-        }
+        auto n_dist = nbr.distance;
+        #if LAYER_BASED_PATH_COMPRESSION
+        pred_map[n] = pred_id;
+        auto dist_diff = abs(n_dist - nbr_info.second.distance);
+        if (max_dist < dist_diff)
+            max_dist = dist_diff;
+        #endif
 
         #if EDGE_ANALYTICS_ENABLED
         size_t pred_depth = depth_record[pred_id];
@@ -1006,6 +1015,16 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                     expanded_nodes.emplace_back(nbr);
                 }
             }
+            #if LAYER_BASED_PATH_COMPRESSION
+            // Add compression edges
+            auto prob = (max_dist - dist_diff) * (max_dist - dist_diff) * 100 / (max_dist * max_dist);
+            if (rand() % 100 < prob) {
+                compression_starts.push_back(n);
+                compression_ends.push_back(pred_map[pred_id]);
+                compression_starts.push_back(pred_map[pred_id]);
+                compression_ends.push_back(n);
+            }
+            #endif
         }
 
         // Find which of the nodes in des have not been visited before
@@ -1076,7 +1095,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             }
         }
             
-
         // Mark nodes visited
         for (auto id : id_scratch)
         {
@@ -1117,7 +1135,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         // Insert <id, dist> pairs into the pool of candidates
         for (size_t m = 0; m < id_scratch.size(); ++m)
         {
-            best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), n);
+            best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
         }
 
         // TODO (SylviaZiyuZhang): Maybe try to give this work to another worker
@@ -1151,6 +1169,9 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         #endif
 
     }
+    #if LAYER_BASED_PATH_COMPRESSION
+    add_compression_edges(compression_starts, compression_ends, scratch);
+    #endif
     return std::make_pair(hops, cmps);
 }
 
@@ -3770,7 +3791,8 @@ void Index<T, TagT, LabelT>::search_with_optimized_layout(const T *query, size_t
         float norm_x = *x;
         x++;
         float dist = dist_fast->compare(x, query, norm_x, (uint32_t)_data_store->get_aligned_dim());
-        retset.insert(Neighbor(id, dist));
+        // TODO (SylviaZiyuZhang): FIXME fix neighbor priority queue usage
+        retset.insert(Neighbor(id, dist), Neighbor(id, dist));
         flags[id] = true;
         L++;
     }
@@ -3779,7 +3801,7 @@ void Index<T, TagT, LabelT>::search_with_optimized_layout(const T *query, size_t
     {
         auto nbr_info = retset.closest_unexpanded();
         auto nbr = nbr_info.first;
-        auto predecessor_id = nbr_info.second;
+        auto predecessor_id = nbr_info.second.id;
         auto n = nbr.id;
         _mm_prefetch(_opt_graph + _node_size * n + _data_len, _MM_HINT_T0);
         neighbors = (uint32_t *)(_opt_graph + _node_size * n + _data_len);
@@ -3798,7 +3820,8 @@ void Index<T, TagT, LabelT>::search_with_optimized_layout(const T *query, size_t
             data++;
             float dist = dist_fast->compare(query, data, norm, (uint32_t)_data_store->get_aligned_dim());
             Neighbor nn(id, dist);
-            retset.insert(nn);
+            // TODO (SylviaZiyuZhang): FIXME: fix this neighbor priority queue usage
+            retset.insert(nn, nn);
         }
     }
 
