@@ -27,10 +27,6 @@
 #include <stdlib.h>
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
-#define EDGE_ANALYTICS_ENABLED false
-#define PATH_COMPRESSION_ENABLED false
-
-const bool COMPRESS_DEBUG = false;
 
 namespace diskann
 {
@@ -3228,8 +3224,9 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     _data_store->set_vector(location, point); // update datastore
 
     // Find and add appropriate graph edges
-    if (COMPRESS_DEBUG)
+    #if COMPRESS_DEBUG
         std::cout << "Store point, adding edges for " << tag << std::endl;
+    #endif
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     auto scratch = manager.scratch_space();
     std::vector<uint32_t> pruned_list; // it is the set best candidates to connect to this point
@@ -3244,8 +3241,9 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     }
     // TODO (SylviaZiyuZhang): FIXME get rid of the assertion
     assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)
-    if (COMPRESS_DEBUG)
+    #if COMPRESS_DEBUG
         std::cout << "Finished search_for_point_and_prune for " << tag << std::endl;
+    #endif
     {
         std::shared_lock<std::shared_timed_mutex> tlock(_tag_lock, std::defer_lock);
         if (_conc_consolidate)
@@ -3268,8 +3266,9 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
         if (_conc_consolidate)
             tlock.unlock();
     }
-    if (COMPRESS_DEBUG)
+    #if COMPRESS_DEBUG
         std::cout << "Added edges to graph store, starting inter insert for " << tag << std::endl;
+    #endif
     inter_insert(location, pruned_list, scratch);
 
     return 0;
