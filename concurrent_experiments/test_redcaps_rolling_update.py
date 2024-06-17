@@ -9,7 +9,7 @@ from utils import parse_ann_benchmarks_hdf5, run_dynamic_test
 import concurrent.futures
 from pathlib import Path
 
-ROLLING_UPDATE_GET_STATIC_BASELINE = True
+ROLLING_UPDATE_GET_STATIC_BASELINE = False
 
 def get_cosine_dist(A, B):
     return - np.dot(A,B) / (np.linalg.norm(A) * np.linalg.norm(B))
@@ -56,9 +56,14 @@ def brute_force_knn(data, start, end, query, k=10, return_set=False, metric="l2"
     dists = [-d for (d, _) in neighbors]
     return neighbor_ids, dists
 
-def get_or_create_ground_truth_batch(path, data, start, end, queries, save=False, k=10, dataset_name="sift", size=10000, metric="l2"):
+def get_or_create_ground_truth_batch(path, data, start, end, queries, save=False, k=10, dataset_name="sift", size=10000, metric="l2", shuffled_data=False, random_queries=False):
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
     if path is None:
-        path = Path('/storage/sylziyuz/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))).expanduser()
+        path = Path('/storage/sylziyuz/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+suffix).expanduser()
     try:
         return np.load(path/'ids.npy'), np.load(path/'dists.npy')
     except FileNotFoundError:
@@ -88,9 +93,14 @@ def get_or_create_ground_truth_batch(path, data, start, end, queries, save=False
 
 
 
-def get_or_create_rolling_update_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2"):
+def get_or_create_rolling_update_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2", shuffled_data=False, random_queries=False):
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
     if path is None:
-        path = Path('/storage/sylziyuz/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
+        path = Path('/storage/sylziyuz/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)+suffix).expanduser()
     try:
         return np.load(path/'ids.npy'), np.load(path/'dists.npy')
     except FileNotFoundError:
@@ -108,12 +118,16 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
         # Maybe implement KD heap here lmao
         for i, v in enumerate(data):
             for j, q in enumerate(queries):
-                all_neighbors[j].add((-dist_func(q, data[i]), i))
+                dist = -dist_func(q, data[i])
+                all_neighbors[j].add((dist, i))
                 if len(all_neighbors[j]) > bigger_k:
                     min_elem = (math.inf, -1)
                     for kk in all_neighbors[j]:
                         if kk[0] < min_elem[0]:
                             min_elem = kk
+                    if min_elem[1] == -1:
+                        print(all_neighbors[j])
+                        print(q)
                     all_neighbors[j].remove(min_elem)
         
         all_neighbor_ids = [[] for _ in queries]
@@ -159,9 +173,14 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
         return all_results_ids, all_results_dists
 
 
-def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2"):
+def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2", shuffled_data=False, random_queries=False):
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
     if path is None:
-        path = Path('/storage/sylziyuz/ann_batch_insert_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)).expanduser()
+        path = Path('/storage/sylziyuz/ann_batch_insert_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)+suffix).expanduser()
     try:
         return np.load(path/'ids.npy'), np.load(path/'dists.npy')
     except FileNotFoundError:
@@ -339,8 +358,6 @@ def close_insertion_experiment(data, queries):
         ("Concur Before", data, queries, update_plan, update_gt_before, False),
         ("Just Queries After", data, queries, query_plan, gt_after, False),
     ]
-    print("Calling run_dynamic_test")
-    # print(update_plan[10:])
     run_dynamic_test(plans, update_gt_before, dists_before, max_vectors=len(data))
 
     plans = [
@@ -351,70 +368,6 @@ def close_insertion_experiment(data, queries):
     ]
     run_dynamic_test(plans, update_gt_after, dists_after, max_vectors=len(data))
 
-def half_dataset_update_experiment(data, queries, gt_neighbors, gt_dists):
-    #data_1 = data[:500000]
-    #data_2 = data[500000:1000000]
-
-    data_1 = data[:50000]
-    data_2 = data[50000:100000]
-    data = data[:100000]
-
-    #data_1 = data[:500000]
-    #data_2 = data[500000:1000000]
-    #data = data[:1000000]
-
-    # indexing_plan = [(0, i) for i in range(len(data_1))]
-    indexing_plan = [(0, i) for i in range(len(data_1))]
-    # initial_lookup = [(1, i) for i in range(len(queries))]
-    initial_lookup = [(1, i) for i in range(100)]
-    initial_lookup_gt = gt_neighbors[:100]
-    set_size = 10
-
-    update_plan = []
-    update_plan_gt = []
-    for i in range(0, len(data_2), set_size):
-        
-        for j in range(set_size):
-            if i+j < len(data_2):
-                update_plan.append((2, len(data_1) + i+j))
-                update_plan_gt.append([])
-        
-        for j in range(set_size):
-            if i+j < len(data_2):
-                update_plan.append((0, len(data_1) + i+j))
-                update_plan_gt.append([])
-                if len(data_1)+i+j < len(queries):
-                    update_plan.append((1, len(data_1)+i+j))
-                    update_plan_gt.append(gt_neighbors[len(data_1)+i+j])
-        for e in initial_lookup:
-            update_plan.append(e)
-        for e in initial_lookup_gt:
-            update_plan_gt.append(e)
-    
-
-    # indexing_plan = [(0, i) for i in range(len(data))]
-
-    plans = [
-        ("Indexing", data, queries, indexing_plan, None, False),
-        ("Initial Search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-        ("Update", data, queries, update_plan, update_plan_gt, False),
-        ("Re-search", data, queries, initial_lookup, initial_lookup_gt, False),
-    ]
-    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
 def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
@@ -426,7 +379,7 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
 
     run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
 
-def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
+def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
     data = data[:2 * size]
     n_queries = len(queries)
 
@@ -434,8 +387,13 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
     initial_lookup = [(1, i) for i in range(len(queries))]
 
     plans = []
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
     lookup_gt_neighbors, lookup_gt_dists = get_or_create_ground_truth_batch(
-        path=Path(gt_data_prefix+'/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))).expanduser(),
+        path=Path(gt_data_prefix+'/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+suffix).expanduser(),
         data=data,
         start=0,
         end=2*size,
@@ -445,6 +403,8 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
         dataset_name=dataset_name,
         size=2*size,
         metric=metric,
+        shuffled_data=False,
+        random_queries=False,
     )
 
     plans.append(("Search", data, queries, initial_lookup, lookup_gt_neighbors, False))
@@ -461,7 +421,7 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
         )
 
 
-def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
+def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
     assert(size > 500)
     assert(size % 100 == 0)
     assert(len(data) >= size * 2)
@@ -474,14 +434,21 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
     initial_lookup = [(1, i) for i in range(len(queries))]
 
     plans=[]
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
-        path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
+        path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100"+suffix).expanduser(),
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
         save=False,
         dataset_name=dataset_name,
         metric=metric,
+        shuffled_data=False,
+        random_queries=False,
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
     initial_lookup_gt_dists = all_gt_dists[0]
@@ -527,7 +494,7 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         
 
 
-def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
+def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
     assert(size > 500)
     assert(size % 100 == 0)
     assert(len(data) >= size * 2)
@@ -544,14 +511,21 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
 
     plans = [("Indexing", data, queries, indexing_plan, None, False)]
     # plans=[]
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_insert_only_ground_truth(
-        path=Path(gt_data_prefix +'/ann_batch_insert_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
+        path=Path(gt_data_prefix +'/ann_batch_insert_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100"+suffix).expanduser(),
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
         save=True,
         dataset_name=dataset_name,
         metric=metric,
+        shuffled_data=False,
+        random_queries=False,
     )
     initial_lookup_gt_neighbors = all_gt_neighbors[0]
     initial_lookup_gt_dists = all_gt_dists[0]
@@ -593,7 +567,7 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
                 batch_build_tags=[i for i in range(1, i+size+1)]
             )
 
-def random_point_recall_improvement_experiment(data, queries, randomize_queries = False):
+def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
     """
     This experiment repeatedly do the following to an index
     add random points
@@ -601,72 +575,74 @@ def random_point_recall_improvement_experiment(data, queries, randomize_queries 
     consolidate
     measure recall
     """
-    size = 100000 # update tag also starts from here
+    size *= 2
+    data_to_update = data[3*size: 4*size]
     data = data[:size]
-    assert(len(data) == size)
 
-    update_batch_size = 5000
-    n_update_batch = 200
+    update_batch_size = size // 10
+    n_update_batch = 100
     n_queries = len(queries)
 
-    indexing_plan = [(0, i) for i in range(size)]
     lookup = [(1, i) for i in range(len(queries))]
-
-
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
     gt_neighbors, gt_dists = get_or_create_ground_truth_batch(
-        None,
-        data,
-        0,
-        size,
-        queries,
-        save=False,
+        path=Path(gt_data_prefix+'/ann_static_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+suffix).expanduser(),
+        data=data,
+        start=0,
+        end=size,
+        queries=queries,
+        save=True,
         k=10,
-        dataset_name="sift",
-        size=size
+        dataset_name=dataset_name,
+        size=size,
+        metric=metric,
+        shuffled_data=False,
+        random_queries=False,
     )
     assert(len(gt_neighbors) == len(queries))
     assert(len(gt_dists) == len(queries))
     extra_data = np.zeros((n_update_batch * update_batch_size, len(data[0])))
     for i in range(0, n_update_batch * update_batch_size):
         base_idx = np.random.randint(size)
-        extra_data[i] = data[base_idx] + 50 * np.random.normal(size=len(data[0]))
-    print(data.shape)
-    print(extra_data.shape)
+        extra_data[i] = data_to_update[base_idx] + np.random.normal(scale=np.linalg.norm(data_to_update[base_idx]) * 50, size=len(data[0]))
+    print("The shape of data is ", data.shape)
+    print("The shape of extra data is ", extra_data.shape)
     data = np.concatenate((data, extra_data))
     try:
         assert(data.shape[0] == size + n_update_batch * update_batch_size)
     except AssertionError:
-        print(data.shape)
+        print("Shape mismatch between data and random data to update, the shape of dat is ", data.shape)
         return
 
-    plans = [("Indexing", data, queries, indexing_plan, None, False)]
+    plans = [("Search"+str(i), data, queries, lookup, gt_neighbors, False)]
 
     for i in range(0, n_update_batch):
         update_plan = []
         for j in range(update_batch_size):
             id = size + i*update_batch_size + j
-            assert(id < len(data))
             update_plan.append((0, id))
         for j in range(update_batch_size):
             id = size + i*update_batch_size + j
             update_plan.append((2, id))
-            assert(id < len(data))
         plans.append(("Update", data, queries, update_plan, None, False))
-        plans.append(("Consolidate", data, queries, [], None, False))
-        plans.append(("Search"+str(i), data, queries, lookup, gt_neighbors, False))
+        plans.append(("Search"+str(i), data, queries, lookup, gt_neighbors, True))
         
     run_dynamic_test(
         plans,
         gt_neighbors,
         gt_dists,
         max_vectors=len(data),
-        experiment_name="redcaps_10000_iter_rand_passes_trial_",
-        #batch_build=True,
-        #batch_build_data=data[:size],
-        #batch_build_tags=[i for i in range(1, size+1)]
+        experiment_name="{}_{}_{}_{}_random_sweep_consolidate".format(dataset_name, size, setting_name, metric),
+        batch_build=True,
+        batch_build_data=data[:size],
+        batch_build_tags=[i for i in range(1, size+1)]
         )
 
-def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=False, batch_build=False, metric="l2"):
+def sorted_adversarial_data_recall_experiment(data, queries, reverse=False, batch_build=False, metric="l2"):
     medoid_vector = calculate_medoid(data, metric)
     dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
     medoid_distances = [dist_func(medoid_vector, v) for v in data]
@@ -675,7 +651,19 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
     indexing_plan = [(0, i) for i in range(len(data))]
     lookup = [(1, i) for i in range(len(queries))]
     plans = [] if batch_build else [("Indexing", np.array(sorted_data), queries, indexing_plan, None, False)]
-    gt_neighbors, gt_dists = get_or_create_ground_truth_batch(None, sorted_data, 0, len(sorted_data), queries, save=False, k=10, dataset_name="sift", size=len(data))
+    gt_neighbors, gt_dists = get_or_create_ground_truth_batch(
+        None,
+        sorted_data,
+        0,
+        len(sorted_data),
+        queries,
+        save=False,
+        k=10,
+        dataset_name="sift",
+        size=len(data),
+        shuffled_data=False,
+        random_queries=False
+    )
     plans.append(("Search", np.array(sorted_data), queries, lookup, gt_neighbors, False))
     run_dynamic_test(
         plans, gt_neighbors, gt_dists,
@@ -698,12 +686,47 @@ def sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=F
         max_vectors=len(data), experiment_name="sorted_adversarial_10000_baseline_")
 
 
+def create_and_save_random_in_distribution_queries(data_prefix_path, dataset_name, dataset, n_queries=10000):
+    queries = []
+    original_data_suffix = "{}/{}.npy".format(dataset_name, dataset)
+    random_queries_suffix = "{}/{}_random_queries.npy".format(dataset_name, dataset)
+    try:
+        data = np.load(data_prefix_path/original_data_suffix)
+    except Exception as ex:
+        print(ex)
+        data = load_or_create_test_data(data_prefix_path/"{}/{}.hdf5".format(dataset_name, dataset))
+    print("Loaded dataset for {} to create in-distribution random queries".format(dataset_name))
+    rand_indices = np.random.choice(len(data), n_queries)
+    queries = data[rand_indices]
+    dimension = len(queries[0])
+    apx_min_dist = np.inf
+    for i in range(1, len(data)):
+        dist = np.linalg.norm(data[i] - data[i-1])
+        if dist < apx_min_dist:
+            apx_min_dist = dist
+    scale = apx_min_dist / 2
+
+    for i in range (n_queries):
+        q = np.random.normal(queries[i], scale, size=dimension)
+        if q[0] == -np.inf or q[0] == np.inf:
+            print(scale)
+        queries[i] = q
+    np.save(data_prefix_path/random_queries_suffix, queries)
+
 def run_one_experiment_manual():
     # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
     data = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-angular.npy")
-    # np.random.shuffle(data)
     data = data[:1000000]
     queries = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-angular_queries.npy")
     print(len(queries))
-    small_batch_gradual_update_experiment(data, queries, dataset_name="redcaps", gt_data_prefix="/storage/sylziyuz", setting_name="setting_name", size=len(data)/2, metric="l2")
-    #sorted_adversarial_data_recall_experiment(data, queries, randomize_queries=False, reverse=True, batch_build=True)
+    small_batch_gradual_update_experiment(
+        data,
+        queries,
+        dataset_name="redcaps",
+        gt_data_prefix="/storage/sylziyuz",
+        setting_name="setting_name",
+        size=len(data)/2,
+        metric="l2",
+        shuffled_data=False,
+        random_queries=False
+    )
