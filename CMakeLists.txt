@@ -186,9 +186,9 @@ else()
     else()
         # static linking for python so as to minimize customer dependency issues
         link_libraries(
-                ${MKL_PATH}/libmkl_intel_ilp64.a
-                ${MKL_PATH}/libmkl_intel_thread.a
-                ${MKL_PATH}/libmkl_core.a
+                ${MKL_PATH}/libmkl_intel_ilp64.so
+                ${MKL_PATH}/libmkl_intel_thread.so
+                ${MKL_PATH}/libmkl_core.so
                 ${MKL_DEF_SO}
                 iomp5
                 pthread
@@ -274,6 +274,7 @@ if(MSVC)
 	set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_DEBUG ${PROJECT_SOURCE_DIR}/x64/Debug)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${PROJECT_SOURCE_DIR}/x64/Debug)
 	set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${PROJECT_SOURCE_DIR}/x64/Debug)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 	set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE ${PROJECT_SOURCE_DIR}/x64/Release)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${PROJECT_SOURCE_DIR}/x64/Release)
