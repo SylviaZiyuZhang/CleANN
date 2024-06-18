@@ -38,6 +38,7 @@ class DynamicMemoryIndex
                                   int num_threads = 0);
     int mark_deleted(DynamicIdType id);
     void save(const std::string &save_path, bool compact_before_save = false);
+    void save_graph(const std::string &graph_file);
     void save_edge_analytics(const std::string &save_path);
     NeighborsAndDistances<DynamicIdType> search(py::array_t<DT, py::array::c_style | py::array::forcecast> &query, uint64_t knn,
                                       uint64_t complexity);

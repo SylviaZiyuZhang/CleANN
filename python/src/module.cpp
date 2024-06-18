@@ -84,6 +84,7 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
         .def("batch_insert", &diskannpy::DynamicMemoryIndex<T>::batch_insert, "vectors"_a, "ids"_a, "num_inserts"_a,
              "num_threads"_a)
         .def("save", &diskannpy::DynamicMemoryIndex<T>::save, "save_path"_a = "", "compact_before_save"_a = false)
+        .def("save_graph", &diskannpy::DynamicMemoryIndex<T>::save_graph, "graph_file"_a="")
         .def("save_edge_analytics", &diskannpy::DynamicMemoryIndex<T>::save_edge_analytics, "save_path"_a = "")
         .def("insert", &diskannpy::DynamicMemoryIndex<T>::insert, "vector"_a, "id"_a)
         .def("mark_deleted", &diskannpy::DynamicMemoryIndex<T>::mark_deleted, "id"_a)
