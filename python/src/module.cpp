@@ -84,7 +84,8 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
         .def("batch_insert", &diskannpy::DynamicMemoryIndex<T>::batch_insert, "vectors"_a, "ids"_a, "num_inserts"_a,
              "num_threads"_a)
         .def("save", &diskannpy::DynamicMemoryIndex<T>::save, "save_path"_a = "", "compact_before_save"_a = false)
-        .def("save_graph", &diskannpy::DynamicMemoryIndex<T>::save_graph, "graph_file"_a="")
+        .def("save_graph_synchronized", &diskannpy::DynamicMemoryIndex<T>::save_graph_synchronized, "file_name"_a="")
+        .def("compare_with_alt_graph", &diskannpy::DynamicMemoryIndex<T>::compare_with_alt_graph, "alt_file_name"_a="")
         .def("save_edge_analytics", &diskannpy::DynamicMemoryIndex<T>::save_edge_analytics, "save_path"_a = "")
         .def("insert", &diskannpy::DynamicMemoryIndex<T>::insert, "vector"_a, "id"_a)
         .def("mark_deleted", &diskannpy::DynamicMemoryIndex<T>::mark_deleted, "id"_a)
@@ -154,6 +155,16 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
         if (consolidate && update_id == 0) {
             std::cout << "Consolidating" << std::endl;
             index.consolidate_delete();
+        }
+    }
+    if (plan_id % 20 == 0) {
+        char filename[50];
+        sprintf(filename, "graph_file_%zu.out", plan_id);
+        index._index.save_graph_synchronized(filename);
+        if (plan_id > 20) {
+            char alt_filename[50];
+            sprintf(alt_filename, "graph_file_%zu.out", plan_id-20);
+            index._index.compare_with_alt_graph(alt_filename);
         }
     }
 

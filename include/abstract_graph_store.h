@@ -50,6 +50,12 @@ class AbstractGraphStore
     {
         return _capacity;
     }
+    // TODO (SylviaZiyuZhang): get_reserve_graph_degree() moved from protected to public
+    // for experimentation purposes. Move it back for code publicizing.
+    size_t get_reserve_graph_degree()
+    {
+        return _reserve_graph_degree;
+    }
 
   protected:
     // Internal function, changes total points when resize_graph is called.
@@ -58,10 +64,7 @@ class AbstractGraphStore
         _capacity = new_capacity;
     }
 
-    size_t get_reserve_graph_degree()
-    {
-        return _reserve_graph_degree;
-    }
+    
 
   private:
     size_t _capacity;

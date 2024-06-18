@@ -72,6 +72,10 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     DISKANN_DLLEXPORT void save(const char *filename, bool compact_before_save = false);
     // Saves analytics
     DISKANN_DLLEXPORT void save_edge_analytics(const char *filename);
+    // Saves graph
+    DISKANN_DLLEXPORT void save_graph_synchronized(const char *file_name);
+    // Compares with previously saved graph and prints results
+    DISKANN_DLLEXPORT void compare_with_alt_graph(const char *alt_filename);
 
     // Load functions
 #ifdef EXEC_ENV_OLS

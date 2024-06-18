@@ -132,13 +132,22 @@ template <class DT> void DynamicMemoryIndex<DT>::save(const std::string &save_pa
     _index.save(save_path.c_str(), compact_before_save);
 }
 
-template <class DT> void DynamicMemoryIndex<DT>::save_graph(const std::string &graph_file)
+template <class DT> void DynamicMemoryIndex<DT>::save_graph_synchronized(const std::string &file_name)
 {
-    if (graph_file.empty())
+    if (file_name.empty())
     {
-        throw std::runtime_error("A graph_file must be provided for saving graph");
+        throw std::runtime_error("A file_name must be provided for saving graph");
     }
-    _index.save_graph(graph_file.c_str());
+    _index.save_graph_synchronized(file_name.c_str());
+}
+
+template <class DT> void DynamicMemoryIndex<DT>::compare_with_alt_graph(const std::string &alt_file_name)
+{
+    if (alt_file_name.empty())
+    {
+        throw std::runtime_error("An alt_file_name must be provided for comparing graph");
+    }
+    _index.compare_with_alt_graph(alt_file_name.c_str());
 }
 
 template <class DT> void DynamicMemoryIndex<DT>::save_edge_analytics(const std::string &save_path)
