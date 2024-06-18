@@ -13,6 +13,7 @@ from test_redcaps_rolling_update import load_or_create_test_data
 DATASET_NAME_DICT = {
     "redcaps-512-angular": "redcaps",
     "sift-128-euclidean": "sift",
+    "glove-100-angular": "glove",
 }
 
 def main():
@@ -69,7 +70,7 @@ def main():
 
     for i, dataset in enumerate(datasets):
         dataset_name = dataset_names[i]
-        data_suffix = "{}/{}.npy".format(dataset_name, dataset) if not shuffle else "{}/{}_shuffled.npy".format(dataset_name, dataset) 
+        data_suffix = "{}/{}.npy".format(dataset_name, dataset)
         query_suffix = "{}/{}_queries.npy".format(dataset_name, dataset) if not random_queries else "{}/{}_random_queries.npy".format(dataset_name, dataset)
         try:
             data = np.load(data_prefix_path/data_suffix)
@@ -77,6 +78,9 @@ def main():
         except Exception as ex:
             print(ex)
             data, queries = load_or_create_test_data(data_prefix_path/"{}/{}.hdf5".format(dataset_name, dataset))
+        if shuffle:
+            np.random.seed(42)
+            np.random.shuffle(data)
 
         print("Loaded dataset and queries for {}".format(dataset_name))
         for size in sizes:
@@ -92,6 +96,8 @@ def main():
                         setting_name=setting_name,
                         size=size,
                         metric=metric,
+                        shuffled_data=shuffle,
+                        random_queries=random_queries,
                     )
 
 if __name__ == "__main__":

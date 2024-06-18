@@ -27,8 +27,7 @@
 #include <stdlib.h>
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
-#define EDGE_ANALYTICS_ENABLED false
-#define PATH_COMPRESSION_ENABLED false
+
 #define INSERT_FIXES_DELETES true
 #define SEARCH_FIXED_DELETES true
 #define COMPLICATED_DYNAMIC_DELETE false
@@ -405,6 +404,27 @@ void Index<T, TagT, LabelT>::save(const char *filename, bool compact_before_save
 }
 
 template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::save_graph_synchronized(const char *file_name)
+{
+    diskann::Timer timer;
+
+    std::unique_lock<std::shared_timed_mutex> ul(_update_lock);
+    std::unique_lock<std::shared_timed_mutex> cl(_consolidate_lock);
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+
+
+    compact_data();
+    compact_frozen_point();
+    std::string graph_file = std::string(file_name);
+    delete_file(graph_file);
+    save_graph(graph_file);
+    reposition_frozen_point_to_end();
+
+    diskann::cout << "Time taken for save_graph: " << timer.elapsed() / 1000000.0 << "s." << std::endl;
+}
+
+template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::save_edge_analytics(const char *filename)
 {
     size_t num_used_edges = 0;
@@ -422,6 +442,37 @@ void Index<T, TagT, LabelT>::save_edge_analytics(const char *filename)
     size_t num_total_edges = _graph_store->get_edge_count();
     std::cout << "Total edges: " << num_total_edges << ", used edges: " << num_used_edges << std::endl;
     return;
+}
+
+template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::compare_with_alt_graph(const char *alt_filename)
+{
+    std::unique_lock<std::shared_timed_mutex> ul(_update_lock);
+    std::unique_lock<std::shared_timed_mutex> cl(_consolidate_lock);
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+    auto alt_graph_store = std::make_unique<InMemGraphStore>(_graph_store->get_total_points(), _graph_store->get_reserve_graph_degree());
+    alt_graph_store->load(alt_filename, _graph_store->get_total_points());
+    for (size_t i = 0; i < _graph_store->get_total_points(); i++) {
+        // filters out start points for readibility, assumes that starting index size and comparison batch sizes are multiples of 10000
+        if (i % 10000 == 0)
+            continue;
+        std::vector<location_t> nb1 = std::vector<location_t>(_graph_store->get_neighbours(i));
+        std::sort(nb1.begin(), nb1.end());
+        std::vector<location_t> nb2 = std::vector<location_t>(alt_graph_store->get_neighbours(i));
+        std::sort(nb2.begin(), nb2.end());
+        for (size_t j = 0; j < nb1.size(); j++) {
+            if (j < nb2.size() && nb1[j] != nb2[j] && nb1[j] % 10000 != 0)
+                diskann::cout << "Graph differs from alt graph (differ) at " << i << ", " << j << ": " << nb1[j] << " vs " << nb2[j] << std::endl;
+            if (j >= nb2.size() && nb1[j] % 10000 != 0)
+                diskann::cout << "Graph differs from alt graph (extra) at " << i << ", " << j << ": " << nb1[j] << std::endl;
+        }
+        for (size_t j = nb1.size(); j < nb2.size(); j++)
+            if (nb2[j] % 10000 != 0)
+                diskann::cout << "Graph differs from alt graph graph (missing) at " << i << ", " << j << ": " << nb2[j] << std::endl;
+    }
+    return;
+
 }
 
 #ifdef EXEC_ENV_OLS
@@ -3392,8 +3443,9 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     _data_store->set_vector(location, point); // update datastore
 
     // Find and add appropriate graph edges
-    if (COMPRESS_DEBUG)
+    #if COMPRESS_DEBUG
         std::cout << "Store point, adding edges for " << tag << std::endl;
+    #endif
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     auto scratch = manager.scratch_space();
     std::vector<uint32_t> pruned_list; // it is the set best candidates to connect to this point
@@ -3408,8 +3460,9 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     }
     // TODO (SylviaZiyuZhang): FIXME get rid of the assertion
     assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)
-    if (COMPRESS_DEBUG)
+    #if COMPRESS_DEBUG
         std::cout << "Finished search_for_point_and_prune for " << tag << std::endl;
+    #endif
     {
         std::shared_lock<std::shared_timed_mutex> tlock(_tag_lock, std::defer_lock);
         if (_conc_consolidate)
@@ -3432,8 +3485,9 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
         if (_conc_consolidate)
             tlock.unlock();
     }
-    if (COMPRESS_DEBUG)
+    #if COMPRESS_DEBUG
         std::cout << "Added edges to graph store, starting inter insert for " << tag << std::endl;
+    #endif
     inter_insert(location, pruned_list, scratch);
 
     return 0;

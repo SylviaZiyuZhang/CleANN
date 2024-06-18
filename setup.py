@@ -20,6 +20,10 @@ class CMakeExtension(Extension):
     def __init__(self, name: str, sourcedir: str = "") -> None:
         super().__init__(name, sources=[])
         self.sourcedir = os.fspath(Path(sourcedir).resolve())
+        self.defined_macros = [
+            ("EDGE_ANALYTICS_ENABLED", "false"),
+            ("PATH_COMPRESSION_ENABLED", "false"),
+        ]
 
 
 class CMakeBuild(build_ext):
