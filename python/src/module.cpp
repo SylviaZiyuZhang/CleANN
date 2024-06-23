@@ -157,16 +157,18 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
             index.consolidate_delete();
         }
     }
-    if (plan_id % 20 == 0) {
+    /*
+    if (plan_id % 3 == 0) {
         char filename[50];
         sprintf(filename, "graph_file_%zu.out", plan_id);
         index._index.save_graph_synchronized(filename);
-        if (plan_id > 20) {
+        if (plan_id > 0) {
             char alt_filename[50];
-            sprintf(alt_filename, "graph_file_%zu.out", plan_id-20);
+            sprintf(alt_filename, "graph_file_%zu.out", plan_id-3);
             index._index.compare_with_alt_graph(alt_filename);
         }
     }
+    */
 
     return std::make_pair(ids, dists);
 }
