@@ -79,7 +79,7 @@ def parse_ann_benchmarks_hdf5(data_path):
 
 
 # plans should be a list of pairs of the form (plan_name, data, queries, update_list, Optional[ground_truth])
-def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="trial", threads=[8], distance_metric="l2", batch_build=False, batch_build_data=None, batch_build_tags=None):
+def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="trial", threads=[1], distance_metric="l2", batch_build=False, batch_build_data=None, batch_build_tags=None):
     time_keys = [plan[0] for plan in plans] + ["Total"]
     all_times = {time_key: [] for time_key in time_keys}
     recall_keys = [plan[0] for plan in plans] + ["Recall"]
@@ -99,6 +99,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         if batch_build:
             assert(len(batch_build_data) == len(batch_build_tags))
             dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
+        
+        # TODO (SylviaZiyuZhang): set_start_points_at_random if not batch build
 
         all_recalls_list = []
         all_mses_list = []
