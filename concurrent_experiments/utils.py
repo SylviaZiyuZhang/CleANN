@@ -10,7 +10,7 @@ query_k = 10
 alpha = 1.2
 build_complexity = 64
 graph_degree = 64
-query_complexity = 64
+query_complexity = 128
 
 dynamic_test = diskannpy._diskannpy.run_dynamic_test
 
@@ -103,6 +103,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
         # TODO (SylviaZiyuZhang): set_start_points_at_random if not batch build
 
         all_recalls_list = []
+        all_mses_list = []
         all_latencies_list = []
         all_num_updates_list = []
         plan_names_list = []
@@ -139,9 +140,12 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
                 plan_id=cur_plan,
             )
             # print("Finished plan", plan_name)
+            mse_total = 0
             if optional_gt is not None:
                 for i, it in enumerate(update_list):
                     if it[0] == 1 and it[1] < len(queries): # A search query
+                        largest_returned = 0
+                        largest_true = 0
                         for k in range(query_k):
                             try:
                                 if results[0][search_count][k] in optional_gt[i][:query_k]:
@@ -155,13 +159,20 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
                                 print(len(optional_gt[i]))
                                 print(i)
                                 raise ex
+                            if largest_returned < results[1][search_count][k]:
+                                largest_returned = results[1][search_count][k]
+                            if largest_true < optional_gt[i][k]:
+                                largest_true = optional_gt[i][k]
+                        mse_total += np.square(largest_returned - largest_true)
                         search_count += 1
             recall = -1 if search_count == 0 else (recall_count / (search_count * query_k))
+            mse = -1 if search_count == 0 else mse_total / search_count
             plan_total_time = time.time() - start_plan_time
             all_times[plan_name].append(plan_total_time)
             all_recalls[plan_name].append(recall)
             # Ths following are for generating plots
             all_recalls_list.append(recall)
+            all_mses_list.append(mse)
             num_updates = len(update_list) if len(update_list) > 0 else 1
             all_num_updates_list.append(num_updates)
             all_latencies_list.append(plan_total_time / num_updates)
@@ -179,6 +190,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="tria
             "num_threads": num_threads,
             "plan_names": plan_names_list,
             "recalls": all_recalls_list,
+            "mses": all_mses_list,
             "latencies": all_latencies_list,
             "num_updates": all_num_updates_list,
             "new_times": new_times,

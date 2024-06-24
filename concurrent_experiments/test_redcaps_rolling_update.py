@@ -421,6 +421,7 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
         lookup_gt_dists,
         max_vectors=len(data),
         experiment_name="{}_{}_{}_{}_static".format(dataset_name, size, setting_name, metric),
+        distance_metric=metric,
         batch_build=True,
         batch_build_data=data,
         batch_build_tags=[i for i in range(1, len(data)+1)]
@@ -518,7 +519,7 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
-        save=False,
+        save=True,
         dataset_name=dataset_name,
         metric=metric,
         shuffled_data=False,
@@ -536,7 +537,7 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         plans.append(("Update", data, queries, update_plan, None, False))
         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
         gt_dists =all_gt_dists[1 + i // update_batch_size]
-        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, True))
+        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, False))
     
     experiment_name = "{}_{}_{}_{}_rolling_update".format(dataset_name, size, setting_name, metric)
     run_dynamic_test(
@@ -545,6 +546,7 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         gt_dists,
         max_vectors=len(data),
         experiment_name=experiment_name,
+        distance_metric=metric,
         batch_build=True,
         batch_build_data=data[:size],
         batch_build_tags=[i for i in range(1, size+1)]
@@ -564,6 +566,7 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
                 all_gt_dists[1 + i // update_batch_size],
                 max_vectors=len(data),
                 experiment_name=experiment_name,
+                distance_metric=metric,
                 batch_build=True,
                 batch_build_data=data[i:i+size],
                 batch_build_tags=[i for i in range(i+1, i+size+1)]
@@ -622,6 +625,7 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
         gt_dists,
         max_vectors=len(data),
         experiment_name = "{}_{}_{}_{}_batch_insert".format(dataset_name, size, setting_name, metric),
+        distance_metric=metric,
         batch_build=True,
         batch_build_data=data[:size],
         batch_build_tags=[i for i in range(1, size+1)]
@@ -638,6 +642,7 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
                 all_gt_dists[1 + i // update_batch_size],
                 max_vectors=len(data),
                 experiment_name=experiment_name,
+                distance_metric=metric,
                 batch_build=True,
                 batch_build_data=data[:i+size],
                 batch_build_tags=[i for i in range(1, i+size+1)]
@@ -652,11 +657,12 @@ def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_d
     measure recall
     """
     size *= 2
-    data_to_update = data[3*size: 4*size]
+    # data_to_update = data[3*size: 4*size]
     data = data[:size]
+    data_to_update = data
 
-    update_batch_size = size // 10
-    n_update_batch = 100
+    update_batch_size = size
+    n_update_batch = 50
     n_queries = len(queries)
 
     lookup = [(1, i) for i in range(len(queries))]
@@ -684,7 +690,7 @@ def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_d
     extra_data = np.zeros((n_update_batch * update_batch_size, len(data[0])))
     for i in range(0, n_update_batch * update_batch_size):
         base_idx = np.random.randint(size)
-        extra_data[i] = data_to_update[base_idx] + np.random.normal(scale=np.linalg.norm(data_to_update[base_idx]) * 50, size=len(data[0]))
+        extra_data[i] = data_to_update[base_idx] + np.random.normal(scale=np.linalg.norm(data_to_update[base_idx]), size=len(data[0]))
     print("The shape of data is ", data.shape)
     print("The shape of extra data is ", extra_data.shape)
     data = np.concatenate((data, extra_data))
@@ -706,6 +712,7 @@ def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_d
             update_plan.append((2, id))
         plans.append(("Update", data, queries, update_plan, None, False))
         plans.append(("Search"+str(i), data, queries, lookup, gt_neighbors, True))
+        plans.append(("Search"+str(i), data, queries, lookup, gt_neighbors, False))
         
     run_dynamic_test(
         plans,
@@ -713,6 +720,7 @@ def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_d
         gt_dists,
         max_vectors=len(data),
         experiment_name="{}_{}_{}_{}_random_sweep_consolidate".format(dataset_name, size, setting_name, metric),
+        distance_metric=metric,
         batch_build=True,
         batch_build_data=data[:size],
         batch_build_tags=[i for i in range(1, size+1)]
@@ -743,6 +751,7 @@ def sorted_adversarial_data_recall_experiment(data, queries, reverse=False, batc
     plans.append(("Search", np.array(sorted_data), queries, lookup, gt_neighbors, False))
     run_dynamic_test(
         plans, gt_neighbors, gt_dists,
+        distance_metric=metric,
         batch_build=batch_build,
         batch_build_data=sorted_data,
         batch_build_tags=[i for i in range(1, len(sorted_data)+1)],
@@ -756,6 +765,7 @@ def sorted_adversarial_data_recall_experiment(data, queries, reverse=False, batc
     plans.append(("Search", data, queries, lookup, gt_neighbors2, False))
     run_dynamic_test(
         plans, gt_neighbors2, gt_dists2,
+        distance_metric=metirc,
         batch_build=batch_build,
         batch_build_data=data,
         batch_build_tags=[i for i in range(1, len(data)+1)],
