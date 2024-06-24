@@ -170,6 +170,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // If _conc_consolidates is set in the ctor, then this call can be invoked
     // alongside inserts and lazy deletes, else it acquires _update_lock
     DISKANN_DLLEXPORT consolidation_report consolidate_deletes(const IndexWriteParameters &parameters);
+    DISKANN_DLLEXPORT void add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors, const uint32_t exclude_loc);
 
     DISKANN_DLLEXPORT void prune_all_neighbors(const uint32_t max_degree, const uint32_t max_occlusion,
                                                const float alpha);

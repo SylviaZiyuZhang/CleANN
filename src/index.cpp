@@ -1726,6 +1726,62 @@ void Index<T, TagT, LabelT>::prune_all_neighbors(const uint32_t max_degree, cons
                       << "  count(deg<2):" << cnt << std::endl;
     }
 }
+template <typename T, typename TagT, typename LabelT>
+void Index<T, TagT, LabelT>::add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors, const uint32_t exclude_loc)
+{
+    // TODO (SylviaZiyuZhang): try path compress here
+    std::vector<uint32_t> copy_of_neighbors;
+    bool prune_needed = false;
+    {
+        LockGuard guard(_locks[location]);
+        auto neighbors = _graph_store->get_neighbours(location);
+        copy_of_neighbors.reserve(neighbors.size());
+        for (auto n: neighbors) {
+            if (n != exclude_loc) {
+                copy_of_neighbors.push_back(n);
+            }
+        }
+        for (auto n: new_neighbors) {
+            if (n != location && n != exclude_loc && std::find(neighbors.begin(), neighbors.end(), n) == neighbors.end()) {
+                copy_of_neighbors.push_back(n);
+            }
+        }
+        if (copy_of_neighbors.size() < (uint64_t(defaults::GRAPH_SLACK_FACTOR * _indexingRange))) {
+            _graph_store->set_neighbours(location, copy_of_neighbors);
+            prune_needed = false;
+        } else {
+            prune_needed = true;
+        }
+    }
+    if (prune_needed)
+    {
+        // TODO (SylviaZiyuZhang): Allocate scratch in an upper level call
+        ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+        auto scratch = manager.scratch_space();
+        tsl::robin_set<uint32_t> dummy_visited(0);
+        std::vector<Neighbor> dummy_pool(0);
+
+        size_t reserveSize = (size_t)(std::ceil(1.05 * defaults::GRAPH_SLACK_FACTOR * _indexingRange));
+        dummy_visited.reserve(reserveSize);
+        dummy_pool.reserve(reserveSize);
+
+        for (auto cur_nbr : copy_of_neighbors)
+        {
+            if (dummy_visited.find(cur_nbr) == dummy_visited.end() && cur_nbr != location)
+            {
+                float dist = _data_store->get_distance(location, cur_nbr);
+                dummy_pool.emplace_back(Neighbor(cur_nbr, dist));
+                dummy_visited.insert(cur_nbr);
+            }
+        }
+        std::vector<uint32_t> pruned_list;
+        prune_neighbors(location, dummy_pool, pruned_list, scratch, false);
+        {
+            LockGuard guard(_locks[location]);
+            _graph_store->set_neighbours(location, pruned_list);
+        }
+    }
+}
 
 // REFACTOR
 template <typename T, typename TagT, typename LabelT>
