@@ -4,6 +4,7 @@
 #include <omp.h>
 #include <fstream>
 #include <cstdlib>
+#include <limits>
 
 #include <type_traits>
 
@@ -28,10 +29,10 @@
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
 
-#define INSERT_FIXES_DELETES true
-#define SEARCH_FIXED_DELETES true
+#define INSERT_FIXES_DELETES false
+#define SEARCH_FIXED_DELETES false
 #define COMPLICATED_DYNAMIC_DELETE false
-#define LAYER_BASED_PATH_COMPRESSION false
+#define LAYER_BASED_PATH_COMPRESSION true
 
 const bool COMPRESS_DEBUG = false;
 
@@ -1011,7 +1012,9 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     // queue without taking them off the queue
     #if LAYER_BASED_PATH_COMPRESSION
     float max_dist = 0.0;
+    float min_dist = std::numeric_limits<float>::max();
     std::unordered_map<uint32_t, uint32_t> pred_map;
+    std::unordered_map<uint32_t, std::vector<diskann::Neighbor>> succ_map;
     std::vector<uint32_t> compression_starts;
     std::vector<uint32_t> compression_ends;
     #endif
@@ -1025,9 +1028,16 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         auto n_dist = nbr.distance;
         #if LAYER_BASED_PATH_COMPRESSION
         pred_map[n] = pred_id;
+        if (succ_map.find(pred_id) != succ_map.end()) {
+            succ_map[pred_id].push_back(nbr_info.first);
+        } else {
+            succ_map[pred_id] = std::vector<diskann::Neighbor>({nbr_info.first});
+        }
         auto dist_diff = abs(n_dist - nbr_info.second.distance);
         if (max_dist < dist_diff)
             max_dist = dist_diff;
+        if (min_dist > dist_diff)
+            min_dist = dist_diff;
         #endif
 
         #if EDGE_ANALYTICS_ENABLED
@@ -1068,6 +1078,19 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             }
             #if LAYER_BASED_PATH_COMPRESSION
             // Add compression edges
+            std::vector<diskann::Neighbor>& siblings = succ_map[pred_id]; // TODO (SylviaZiyuZhang): try going back 2 steps
+            for (auto sibling: siblings) {
+                auto cur_dist_diff = abs(n_dist - sibling.distance);
+                auto prob = min_dist / cur_dist_diff; // TODO (SylviaZiyuZhang): try using square
+                // if (rand() % 100 < prob) {
+                if (true) {
+                    compression_starts.push_back(n);
+                    compression_ends.push_back(sibling.id);
+                    compression_starts.push_back(sibling.id);
+                    compression_ends.push_back(n);
+                }
+            }
+            /*
             auto prob = (max_dist - dist_diff) * (max_dist - dist_diff) * 100 / (max_dist * max_dist);
             if (rand() % 100 < prob) {
                 compression_starts.push_back(n);
@@ -1075,6 +1098,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                 compression_starts.push_back(pred_map[pred_id]);
                 compression_ends.push_back(n);
             }
+            */
             #endif
         }
 
