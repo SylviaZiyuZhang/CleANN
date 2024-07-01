@@ -6,11 +6,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 
-query_k = 10
-alpha = 1.2
-build_complexity = 64
-graph_degree = 64
-query_complexity = 64
 
 dynamic_test = diskannpy._diskannpy.run_dynamic_test
 
@@ -30,6 +25,11 @@ def test_static_index(
     index_directory="indices",
     num_threads=0,
     distance_metric="l2",
+    graph_degree=64,
+    build_complexity=64,
+    query_complexity=64,
+    query_k=10,
+    alpha=1.2,
 ):
     prefix = f"{dataset_short_name}-{alpha}-{build_complexity}-{graph_degree}"
 
@@ -79,7 +79,11 @@ def parse_ann_benchmarks_hdf5(data_path):
 
 
 # plans should be a list of pairs of the form (plan_name, data, queries, update_list, Optional[ground_truth])
-def run_dynamic_test(plans, neighbors, dists, max_vectors, experiment_name="trial", threads=[1], distance_metric="l2", batch_build=False, batch_build_data=None, batch_build_tags=None):
+def run_dynamic_test(plans, neighbors, dists, max_vectors,
+    experiment_name="trial", threads=[8], distance_metric="l2",
+    batch_build=False, batch_build_data=None, batch_build_tags=None,
+    build_complexity=64, graph_degree=64, query_complexity=64, query_k=10,
+):
     time_keys = [plan[0] for plan in plans] + ["Total"]
     all_times = {time_key: [] for time_key in time_keys}
     recall_keys = [plan[0] for plan in plans] + ["Recall"]

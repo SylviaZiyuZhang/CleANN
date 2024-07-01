@@ -385,7 +385,10 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
         experiment_name="redcaps_no_shuffle_10000_fresh_update_static_recall_"+str(start)
     )
 
-def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
+def static_recall_experiment(data, queries, dataset_name, gt_data_prefix,
+    setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
+    query_k=10, build_complexity=64, query_complexity=64, graph_degree=64,
+):
     data = data[:2 * size]
     n_queries = len(queries)
 
@@ -424,7 +427,11 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix, settin
         distance_metric=metric,
         batch_build=True,
         batch_build_data=data,
-        batch_build_tags=[i for i in range(1, len(data)+1)]
+        batch_build_tags=[i for i in range(1, len(data)+1)],
+        query_k=query_k,
+        build_complexity=build_complexity,
+        query_complexity=query_complexity,
+        graph_degree=graph_degree,
         )
 
 def small_batch_gradual_update_immediate_delete_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
@@ -496,7 +503,10 @@ def small_batch_gradual_update_immediate_delete_experiment(data, queries, datase
             )
 
 
-def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
+def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_prefix,
+    setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
+    query_k=10, query_complexity=64, build_complexity=64, graph_degree=64
+):
     assert(size > 500)
     assert(size % 100 == 0)
     assert(len(data) >= size * 2)
@@ -549,7 +559,11 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         distance_metric=metric,
         batch_build=True,
         batch_build_data=data[:size],
-        batch_build_tags=[i for i in range(1, size+1)]
+        batch_build_tags=[i for i in range(1, size+1)],
+        query_k=query_k,
+        build_complexity=build_complexity,
+        query_complexity=query_complexity,
+        graph_degree=graph_degree,
         )
     
     
@@ -569,7 +583,11 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
                 distance_metric=metric,
                 batch_build=True,
                 batch_build_data=data[i:i+size],
-                batch_build_tags=[i for i in range(i+1, i+size+1)]
+                batch_build_tags=[i for i in range(i+1, i+size+1)],
+                query_k=query_k,
+                build_complexity=build_complexity,
+                query_complexity=query_complexity,
+                graph_degree=graph_degree,
             )
 
 
@@ -628,8 +646,12 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
         distance_metric=metric,
         batch_build=True,
         batch_build_data=data[:size],
-        batch_build_tags=[i for i in range(1, size+1)]
-    )
+        batch_build_tags=[i for i in range(1, size+1)],
+        query_k=query_k,
+        build_complexity=build_complexity,
+        query_complexity=query_complexity,
+        graph_degree=graph_degree,
+        )
 
     # ============================== get static recall ==============================
     if ROLLING_UPDATE_GET_STATIC_BASELINE:
@@ -645,10 +667,17 @@ def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_nam
                 distance_metric=metric,
                 batch_build=True,
                 batch_build_data=data[:i+size],
-                batch_build_tags=[i for i in range(1, i+size+1)]
+                batch_build_tags=[i for i in range(1, i+size+1)],
+                query_k=query_k,
+                build_complexity=build_complexity,
+                query_complexity=query_complexity,
+                graph_degree=graph_degree,
             )
 
-def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
+def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_data_prefix,
+    setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
+    query_k=10, build_complexity=64, query_complexity=64, graph_degree=64,
+):
     """
     This experiment repeatedly do the following to an index
     add random points
@@ -723,7 +752,11 @@ def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_d
         distance_metric=metric,
         batch_build=True,
         batch_build_data=data[:size],
-        batch_build_tags=[i for i in range(1, size+1)]
+        batch_build_tags=[i for i in range(1, size+1)],
+        query_k=query_k,
+        build_complexity=build_complexity,
+        query_complexity=query_complexity,
+        graph_degree=graph_degree,
         )
 
 def sorted_adversarial_data_recall_experiment(data, queries, reverse=False, batch_build=False, metric="l2"):
