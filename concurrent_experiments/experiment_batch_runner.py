@@ -25,6 +25,10 @@ def main():
     default_sizes = [5000]
     default_experiments = ["small_batch_gradual_update_experiment"]
     default_setting_name = "setting_name"
+    default_query_k = 10
+    default_build_complexity = 64
+    default_query_complexity = 64
+    default_graph_degree = 64
 
     # Create the parser
     parser = argparse.ArgumentParser(description="Settings for concurrent ANN experiments with CLI.")
@@ -39,6 +43,10 @@ def main():
     parser.add_argument('--setting_name', type=str, default=default_setting_name, help='Name of the setting.')
     parser.add_argument('--shuffle', action='store_true', default=False, help='Whether to shuffle the dataset.')
     parser.add_argument('--random_queries', action='store_true', default=False, help='Whether to use randomized in-distribution queries.')
+    parser.add_argument('--query_k', type=int, default=default_query_k, help='The number of approximate nearest neighbors to search for.')
+    parser.add_argument('--build_complexity', type=int, default=default_build_complexity, help='The beam width during build phase.')
+    parser.add_argument('--query_complexity', type=int, default=default_query_complexity, help='The beam width during search phase.')
+    parser.add_argument('--graph_degree', type=int, default=default_graph_degree, help='The limit of out-degree in the index.')
 
     # Parse the arguments
     args = parser.parse_args()
@@ -54,6 +62,10 @@ def main():
     setting_name = args.setting_name
     shuffle = args.shuffle
     random_queries = args.random_queries
+    query_k = args.query_k
+    build_complexity = args.build_complexity
+    query_complexity = args.query_complexity
+    graph_degree = args.graph_degree
 
     # Print the parsed arguments
     print("==============================================")
@@ -65,6 +77,11 @@ def main():
     print(f"Sizes: {sizes}")
     print(f"Setting Name: {setting_name}")
     print(f"Shuffle: {shuffle}")
+    print(f"query_k: {query_k}")
+    print(f"build_complexity: {build_complexity}")
+    print(f"query_complexity: {query_complexity}")
+    print(f"graph_degree: {graph_degree}")
+
     print("==============================================")
     print("----------- Starting Experiments -------------")
 
@@ -98,6 +115,10 @@ def main():
                         metric=metric,
                         shuffled_data=shuffle,
                         random_queries=random_queries,
+                        query_k=query_k,
+                        graph_degree=graph_degree,
+                        query_complexity=query_complexity,
+                        build_complexity=build_complexity,
                     )
 
 if __name__ == "__main__":
