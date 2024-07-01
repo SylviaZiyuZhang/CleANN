@@ -10,7 +10,7 @@ query_k = 10
 alpha = 1.2
 build_complexity = 64
 graph_degree = 64
-query_complexity = 128
+query_complexity = 64
 
 dynamic_test = diskannpy._diskannpy.run_dynamic_test
 
