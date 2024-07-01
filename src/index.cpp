@@ -1219,6 +1219,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         // TODO (SylviaZiyuZhang): Maybe try to give this work to another worker
         #if INSERT_FIXES_DELETES
         // TODO (SylviaZiyuZhang): Maybe fix after outgoing_delegate is explored
+        // TODO (SylviaZiyuZhang): Try removing the constraint that n has to be live.
         if (_delete_set->find(n) != _delete_set->end() && !search_invocation && !fixed && n != pred_id) { // n is deleted
             // TODO (SylviaZiyuZhang): This is the star idea
             // _graph_store->set_incoming_delegate(n, pred_id);
@@ -1226,7 +1227,12 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             // copy_of_neighbors.erase(copy_of_neighbors.begin());
             // _graph_store->set_outgoing_delegate(n, outgoing_delegate);
             // add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
-            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
+            
+            // This fixes one child
+            // add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
+
+            // This fixes one parent
+            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
             fixed = true;
         }
         #endif
@@ -1241,7 +1247,12 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             // copy_of_neighbors.erase(copy_of_neighbors.begin());
             // _graph_store->set_outgoing_delegate(n, outgoing_delegate);
             // add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
-            add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
+            
+            // This fixes one child
+            //add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
+
+            // This fixes one parent
+            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
             fixed = true;
         }
         #endif
@@ -2881,6 +2892,78 @@ inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_set<uint32_t
             std::vector<uint32_t> &occlude_list_output = scratch->occlude_list_output();
             occlude_list((uint32_t)loc, expanded_nghrs_vec, alpha, range, maxc, occlude_list_output, scratch, false,
                          &old_delete_set);
+            std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
+            _graph_store->set_neighbours((location_t)loc, occlude_list_output);
+        }
+    }
+}
+
+
+template <typename T, typename TagT, typename LabelT>
+inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha)
+// loc is a possible still live incoming neighbor of a deleted point
+{
+    ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+    auto scratch = manager.scratch_space();
+    tsl::robin_set<uint32_t> &expanded_nodes_set = scratch->expanded_nodes_set();
+    std::vector<Neighbor> &expanded_nghrs_vec = scratch->expanded_nodes_vec();
+
+    // Protection for possible concurrent access with other lazy_delete calls.
+    std::unique_lock<std::shared_timed_mutex> delete_lock(_delete_lock, std::defer_lock);
+    delete_lock.lock();
+    // TODO: (SylviaZiyuZhang) This should not be necessary, try removing it.
+    assert(_delete_set->find((uint32_t)loc) == _delete_set->end());
+
+    std::vector<uint32_t> adj_list;
+    {
+        // Acquire and release lock[loc] before acquiring locks for neighbors
+        std::unique_lock<non_recursive_mutex> adj_list_lock;
+        if (_conc_consolidate)
+            adj_list_lock = std::unique_lock<non_recursive_mutex>(_locks[loc]);
+        adj_list = _graph_store->get_neighbours((location_t)loc);
+    }
+
+    bool modify = false;
+    for (auto ngh : adj_list)
+    {
+        if (_delete_set->find(ngh) == _delete_set->end())
+        { // insert not deleted neighbor into expanded_nodes_set
+            expanded_nodes_set.insert(ngh);
+        }
+        else
+        {
+            modify = true;
+
+            std::unique_lock<non_recursive_mutex> ngh_lock;
+            if (_conc_consolidate)
+                ngh_lock = std::unique_lock<non_recursive_mutex>(_locks[ngh]);
+            for (auto j : _graph_store->get_neighbours((location_t)ngh))
+                if (j != loc && _delete_set->find(j) == _delete_set->end())
+                    expanded_nodes_set.insert(j);
+        }
+    }
+    delete_lock.unlock();
+
+    if (modify)
+    {
+        if (expanded_nodes_set.size() <= range)
+        {
+            std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
+            _graph_store->clear_neighbours((location_t)loc);
+            for (auto &ngh : expanded_nodes_set)
+                _graph_store->add_neighbour((location_t)loc, ngh);
+        }
+        else
+        {
+            // Create a pool of Neighbor candidates from the expanded_nodes_set
+            expanded_nghrs_vec.reserve(expanded_nodes_set.size());
+            for (auto &ngh : expanded_nodes_set)
+            {
+                expanded_nghrs_vec.emplace_back(ngh, _data_store->get_distance((location_t)loc, (location_t)ngh));
+            }
+            std::sort(expanded_nghrs_vec.begin(), expanded_nghrs_vec.end());
+            std::vector<uint32_t> &occlude_list_output = scratch->occlude_list_output();
+            occlude_list((uint32_t)loc, expanded_nghrs_vec, alpha, range, maxc, occlude_list_output, scratch, false);
             std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
             _graph_store->set_neighbours((location_t)loc, occlude_list_output);
         }
