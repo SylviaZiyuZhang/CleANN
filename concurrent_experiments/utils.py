@@ -103,6 +103,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
         if batch_build:
             assert(len(batch_build_data) == len(batch_build_tags))
             dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
+        
+        # TODO (SylviaZiyuZhang): set_start_points_at_random if not batch build
 
         all_recalls_list = []
         all_mses_list = []

@@ -377,7 +377,13 @@ def get_static_recall(data, queries, start, end, gt_neighbors, gt_dists):
     plans = [("Indexing", data, queries, indexing_plan, None, False)]
     plans.append(("Search", data, queries, lookup, gt_neighbors, False))
 
-    run_dynamic_test(plans, gt_neighbors, gt_dists, max_vectors=len(data))
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name="redcaps_no_shuffle_10000_fresh_update_static_recall_"+str(start)
+    )
 
 def static_recall_experiment(data, queries, dataset_name, gt_data_prefix,
     setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
@@ -427,6 +433,74 @@ def static_recall_experiment(data, queries, dataset_name, gt_data_prefix,
         query_complexity=query_complexity,
         graph_degree=graph_degree,
         )
+
+def small_batch_gradual_update_immediate_delete_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2"):
+    assert(size > 500)
+    assert(size % 100 == 0)
+    assert(len(data) >= size * 2)
+    data = data[:2 * size]
+    n_update_batch = 100
+    update_batch_size = size // 100
+    n_queries = len(queries)
+
+    indexing_plan = [(0, i) for i in range(size)]
+    initial_lookup = [(1, i) for i in range(len(queries))]
+
+    plans=[]
+    all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
+        path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100").expanduser(),
+        data=data[:size],
+        data_to_update=data[size:2 * size],
+        queries=queries,
+        save=False,
+        dataset_name=dataset_name,
+        metric=metric,
+    )
+    initial_lookup_gt_neighbors = all_gt_neighbors[0]
+    initial_lookup_gt_dists = all_gt_dists[0]
+    for i in range(0, size, update_batch_size):
+        for j in range(update_batch_size):
+            update_plan = []
+            delete_id = i + j
+            insert_id = delete_id + size
+            update_plan.append((0, insert_id))
+            update_plan.append((2, delete_id))
+            consolidate = True if j > 0 else False
+            plans.append(("Update", data, queries, update_plan, None, consolidate))
+        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
+        gt_dists =all_gt_dists[1 + i // update_batch_size]
+        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, False))
+    
+    experiment_name = "{}_{}_{}_{}_rolling_update_immediate_delete".format(dataset_name, size, setting_name, metric)
+    run_dynamic_test(
+        plans,
+        gt_neighbors,
+        gt_dists,
+        max_vectors=len(data),
+        experiment_name=experiment_name,
+        batch_build=True,
+        batch_build_data=data[:size],
+        batch_build_tags=[i for i in range(1, size+1)]
+        )
+    
+    
+
+    # ============================== get static recall ==============================
+
+    if ROLLING_UPDATE_GET_STATIC_BASELINE:
+        for i in range(0, size, update_batch_size):
+            lookup = [(1, i) for i in range(len(queries))]
+            experiment_name = "{}_{}_{}_{}_rolling_update_static_baseline_{}_{}".format(dataset_name, size, setting_name, metric, i, i+size)
+            run_dynamic_test(
+                [("Search", data, queries, lookup, gt_neighbors, False)],
+                all_gt_neighbors[1 + i // update_batch_size],
+                all_gt_dists[1 + i // update_batch_size],
+                max_vectors=len(data),
+                experiment_name=experiment_name,
+                batch_build=True,
+                batch_build_data=data[i:i+size],
+                batch_build_tags=[i for i in range(i+1, i+size+1)]
+            )
 
 
 def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_prefix,
@@ -491,8 +565,11 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
         query_complexity=query_complexity,
         graph_degree=graph_degree,
         )
+    
+    
 
     # ============================== get static recall ==============================
+
     if ROLLING_UPDATE_GET_STATIC_BASELINE:
         for i in range(0, size, update_batch_size):
             lookup = [(1, i) for i in range(len(queries))]
@@ -512,7 +589,6 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
                 query_complexity=query_complexity,
                 graph_degree=graph_degree,
             )
-        
 
 
 def small_batch_gradual_update_insert_only_experiment(data, queries, dataset_name, gt_data_prefix, setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False):
@@ -756,6 +832,7 @@ def create_and_save_random_in_distribution_queries(data_prefix_path, dataset_nam
         queries[i] = q
     np.save(data_prefix_path/random_queries_suffix, queries)
 
+
 def run_one_experiment_manual():
     # data, queries, _, _ = load_or_create_test_data(path="../data/sift-128-euclidean.hdf5")
     data = np.load("/storage/sylziyuz/new_filtered_ann_datasets/redcaps/redcaps-512-angular.npy")
@@ -773,3 +850,4 @@ def run_one_experiment_manual():
         shuffled_data=False,
         random_queries=False
     )
+

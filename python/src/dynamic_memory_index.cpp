@@ -205,6 +205,11 @@ template <class DT> size_t DynamicMemoryIndex<DT>::num_points()
     return _index.get_num_points();
 }
 
+template <class DT> void DynamicMemoryIndex<DT>::print_status()
+{
+    _index.print_status();
+}
+
 template class DynamicMemoryIndex<float>;
 template class DynamicMemoryIndex<uint8_t>;
 template class DynamicMemoryIndex<int8_t>;
