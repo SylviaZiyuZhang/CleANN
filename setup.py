@@ -23,8 +23,14 @@ class CMakeExtension(Extension):
         self.defined_macros = [
             ("EDGE_ANALYTICS_ENABLED", "false"),
             ("PATH_COMPRESSION_ENABLED", "false"),
+            ("INSERT_FIXES_DELETES", "false"),
+            ("SEARCH_FIXES_DELETES", "false"),
+            ("FIXES_DELETES_LOWER_LAYER", "true"),
+            ("COMPLICATED_DYNAMIC_DELETE", "false"),
+            ("LAYER_BASED_PATH_COMPRESSION", "true"),
+            ("MEMORY_COLLECTION", "true"),
+            ("ITERATION_SKIPS_TOMBSTONES", "false"),
         ]
-
 
 class CMakeBuild(build_ext):
     def build_extension(self, ext: CMakeExtension) -> None:

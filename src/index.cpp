@@ -29,16 +29,6 @@
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
 
-#define INSERT_FIXES_DELETES false
-#define SEARCH_FIXED_DELETES false
-#define FIXES_DELETES_LOWER_LAYER true
-#define COMPLICATED_DYNAMIC_DELETE false
-#define LAYER_BASED_PATH_COMPRESSION false
-#define MEMORY_COLLECTION true
-#define ITERATION_SKIPS_TOMBSTONES false
-
-const bool COMPRESS_DEBUG = false;
-
 namespace diskann
 {
 // Initialize an index with metric m, load the data of type T with filename
@@ -1233,14 +1223,21 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
             #if FIXES_DELETES_LOWER_LAYER
             auto dc = id_scratch[m];
-            if (_delete_set->find(n) == _delete_set->end() && _delete_set->find(dc) != _delete_set->end() && dc != n) {
+            if (_delete_set->find(dc) != _delete_set->end() && dc != n) {
                 fix_this = true;
             }
             #endif
         }
         #if FIXES_DELETES_LOWER_LAYER
-        if (fix_this) {
-            process_delete(n, _indexingRange, _indexingMaxC, _indexingAlpha);
+        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
+        // Protection for possible concurrent access with other lazy_delete calls.
+        // std::unique_lock<std::shared_timed_mutex> delete_lock(_delete_lock, std::defer_lock);
+        // delete_lock.lock();
+        dl.lock();
+        if (fix_this && _delete_set->find(n) == _delete_set->end()) {
+            process_delete(n, _indexingRange, _indexingMaxC, _indexingAlpha, dl);
+        } else {
+            dl.unlock();
         }
         #endif
 
@@ -1248,6 +1245,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         #if INSERT_FIXES_DELETES
         // TODO (SylviaZiyuZhang): Maybe fix after outgoing_delegate is explored
         // TODO (SylviaZiyuZhang): Try removing the constraint that n has to be live.
+        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
+        dl.lock();
         if (_delete_set->find(n) != _delete_set->end() && !search_invocation && !fixed && n != pred_id && _delete_set->find(pred_id) == _delete_set->end()) { // n is deleted
             // TODO (SylviaZiyuZhang): This is the star idea
             // _graph_store->set_incoming_delegate(n, pred_id);
@@ -1260,13 +1259,17 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             // add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
 
             // This fixes one parent
-            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
+            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha, dl);
+        } else {
+            dl.unlock();
         }
         #endif
 
         #if SEARCH_FIXES_DELETES
         // TODO (SylviaZiyuZhang): Figure out the locking situation here
         // TODO (SylviaZiyuZhang): Maybe fix after outgoing_delegate is explored
+        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
+        dl.lock();
         if (_delete_set->find(n) != _delete_set->end() && search_invocation && !fixed && n != pred_id && _delete_set->find(pred_id) == _delete_set->end()) { // n is deleted
             // TODO (SylviaZiyuZhang): This is the star idea
             // _graph_store->set_incoming_delegate(n, pred_id);
@@ -1279,7 +1282,9 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             //add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
 
             // This fixes one parent
-            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
+            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha, dl);
+        } else {
+            dl.unlock();
         }
         #endif
 
@@ -1589,8 +1594,6 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
         //while (compression_i < occlude_skipped_points.size() && compression_i < result.size() && compression_i < 3){
         //    compression_starts.push_back(occlude_skipped_points[compression_i]);
         //    compression_ends.push_back(result[result.size() - compression_i - 1]);
-        //    if (COMPRESS_DEBUG)
-        //        std::cout << "Adding compression edge " << occlude_skipped_points[compression_i] << " -> " << result[result.size() - compression_i - 1] << "for location " << location << std::endl;
         //    compression_i++;
         //}
         
@@ -2926,7 +2929,8 @@ inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_set<uint32_t
 
 
 template <typename T, typename TagT, typename LabelT>
-inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha)
+inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha,
+        std::unique_lock<std::shared_timed_mutex> &delete_lock)
 // loc is a possible still live incoming neighbor of a deleted point
 {
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
@@ -2934,9 +2938,6 @@ inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t ra
     tsl::robin_set<uint32_t> &expanded_nodes_set = scratch->expanded_nodes_set();
     std::vector<Neighbor> &expanded_nghrs_vec = scratch->expanded_nodes_vec();
 
-    // Protection for possible concurrent access with other lazy_delete calls.
-    std::unique_lock<std::shared_timed_mutex> delete_lock(_delete_lock, std::defer_lock);
-    delete_lock.lock();
     // TODO: (SylviaZiyuZhang) This should not be necessary, try removing it.
     assert(_delete_set->find((uint32_t)loc) == _delete_set->end());
 
@@ -3601,9 +3602,6 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     _data_store->set_vector(location, point); // update datastore
 
     // Find and add appropriate graph edges
-    #if COMPRESS_DEBUG
-        std::cout << "Store point, adding edges for " << tag << std::endl;
-    #endif
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     auto scratch = manager.scratch_space();
     std::vector<uint32_t> pruned_list; // it is the set best candidates to connect to this point
@@ -3618,9 +3616,6 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     }
     // TODO (SylviaZiyuZhang): FIXME get rid of the assertion
     assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)
-    #if COMPRESS_DEBUG
-        std::cout << "Finished search_for_point_and_prune for " << tag << std::endl;
-    #endif
     {
         std::shared_lock<std::shared_timed_mutex> tlock(_tag_lock, std::defer_lock);
         if (_conc_consolidate)
@@ -3643,9 +3638,6 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
         if (_conc_consolidate)
             tlock.unlock();
     }
-    #if COMPRESS_DEBUG
-        std::cout << "Added edges to graph store, starting inter insert for " << tag << std::endl;
-    #endif
     inter_insert(location, pruned_list, scratch);
 
     return 0;
