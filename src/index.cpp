@@ -29,6 +29,14 @@
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
 
+#define INSERT_FIXES_DELETES false
+#define SEARCH_FIXES_DELETES false
+#define COMPLICATED_DYNAMIC_DELETE false
+#define FIXES_DELETES_LOWER_LAYER true
+#define LAYER_BASED_PATH_COMPRESSION true
+#define MEMORY_COLLECTION true
+#define ITERATION_SKIPS_TOMBSTONES false
+
 namespace diskann
 {
 // Initialize an index with metric m, load the data of type T with filename
@@ -1109,12 +1117,12 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             copy_of_neighbors.reserve(neighbors.size());
             copy_of_neighbors.assign(neighbors.begin(), neighbors.end());
             #if MEMORY_COLLECTION
-            if (_delete_set->find(n) != _delete_set->end() && _graph_store->get_incoming_degree_count(n) == 1) {
+            if (_delete_set->find(n) != _delete_set->end() && _graph_store->get_incoming_degree_count(n) <= 1) {
                 {
                     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
                     _delete_set->erase(n);
+                    release_location(n);
                 }
-                release_location(n);
             }
             #endif
             if (_dynamic_index)
