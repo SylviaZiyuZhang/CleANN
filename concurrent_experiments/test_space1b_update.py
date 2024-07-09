@@ -88,7 +88,7 @@ def spacev_update_experiment():
     pass
 
 
-def load_or_create_test_data(path, size, dimension, n_queries, gt_k=100):
+def load_or_create_test_data(path, size, dimension, n_queries, gt_k=100, create=False):
     """
     Requires:
         path: string
@@ -108,8 +108,9 @@ def load_or_create_test_data(path, size, dimension, n_queries, gt_k=100):
     """
     try:
         return parse_ann_benchmarks_hdf5(path)
-    except h5py.FileNotFoundError:
-        pass
+    except:
+        if not create:
+            return [], [], [], []
     
     data = np.random.normal(size=(size, dimension), scale=1000.0)
     queries = np.random.normal(size=(n_queries, dimension), scale=1000.0)

@@ -9,7 +9,7 @@ from utils import parse_ann_benchmarks_hdf5, run_dynamic_test
 import concurrent.futures
 from pathlib import Path
 
-ROLLING_UPDATE_GET_STATIC_BASELINE = False
+ROLLING_UPDATE_GET_STATIC_BASELINE = True
 
 def get_cosine_dist(A, B):
     return - np.dot(A,B) / (np.linalg.norm(A) * np.linalg.norm(B))
@@ -17,10 +17,18 @@ def get_cosine_dist(A, B):
 def get_l2_dist(A, B):
     return np.linalg.norm(A-B)
 
+def get_mips_dist(A, B):
+    # Maximum inner product search
+    return - np.dot(A, B)
+
 def calculate_medoid(data, metric="l2"):
     # This selects the vector from the dataset that is the medoid
     # (instead of calculating the medoid in the spatial sense)
-    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+    dist_func = get_l2_dist
+    if metric == "cosine":
+        dist_func = get_cosine_dist
+    if metric == "mips":
+        dist_func = get_mips_dist
     distance_matrix = np.zeros((len(data), len(data)))
     for i in range(len(data)):
         for j in range(i, len(data)):
@@ -43,7 +51,12 @@ def brute_force_knn(data, start, end, query, k=10, return_set=False, metric="l2"
     """
     neighbors = []
     cur_k = 0
-    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+    dist_func = get_l2_dist
+    if metric == "cosine":
+        dist_func = get_cosine_dist
+    if metric == "mips":
+        dist_func = get_mips_dist
+
     for i in range(start, end):
         heapq.heappush(neighbors, (-dist_func(query, data[i]), i))
         cur_k += 1
@@ -69,7 +82,11 @@ def get_or_create_ground_truth_batch(path, data, start, end, queries, save=False
     except FileNotFoundError:
         if save:
             path.mkdir(parents=True, exist_ok=True)
-        dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+        dist_func = get_l2_dist
+        if metric == "cosine":
+            dist_func = get_cosine_dist
+        if metric == "mips":
+            dist_func = get_mips_dist
         all_neighbors = [[] for _ in queries]
         all_neighbor_ids = [[] for _ in queries]
         all_dists = [[] for _ in queries]
@@ -106,7 +123,11 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
     except FileNotFoundError:
         if save:
             path.mkdir(parents=True, exist_ok=False)
-        dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+        dist_func = get_l2_dist
+        if metric == "cosine":
+            dist_func = get_cosine_dist
+        if metric == "mips":
+            dist_func = get_mips_dist
         batch_size = len(data) // batch_num
         bigger_k = 5 * k
         assert len(data) == len(data_to_update)
@@ -186,7 +207,11 @@ def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_up
     except FileNotFoundError:
         if save:
             path.mkdir(parents=True, exist_ok=False)
-        dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+        dist_func = get_l2_dist
+        if metric == "cosine":
+            dist_func = get_cosine_dist
+        if metric == "mips":
+            dist_func = get_mips_dist
         batch_size = len(data) // batch_num
         bigger_k = 5 * k
         assert len(data) == len(data_to_update)
@@ -259,7 +284,7 @@ def get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_nam
 
     return np.array(all_neighbor_ids), np.array(all_dists)
 
-def load_or_create_test_data(path, size=100, dimension=10, n_queries=10, gt_k=100):
+def load_or_create_test_data(path, size=100, dimension=10, n_queries=10, gt_k=100, create=False):
     """
     Requires:
         path: string
@@ -279,8 +304,10 @@ def load_or_create_test_data(path, size=100, dimension=10, n_queries=10, gt_k=10
     """
     try:
         return parse_ann_benchmarks_hdf5(path)
-    except h5py.FileNotFoundError:
-        pass
+    except:
+        if not create:
+            return [], [], [], []
+        
     
     data = np.random.normal(size=(size, dimension), scale=1000.0)
     queries = np.random.normal(size=(n_queries, dimension), scale=1000.0)
@@ -685,7 +712,11 @@ def random_point_recall_improvement_experiment(data, queries, dataset_name, gt_d
 
 def sorted_adversarial_data_recall_experiment(data, queries, reverse=False, batch_build=False, metric="l2"):
     medoid_vector = calculate_medoid(data, metric)
-    dist_func = get_cosine_dist if metric == "cosine" else get_l2_dist
+    dist_func = get_l2_dist
+    if metric == "cosine":
+        dist_func = get_cosine_dist
+    if metric == "mips":
+        dist_func = get_mips_dist
     medoid_distances = [dist_func(medoid_vector, v) for v in data]
     # sort the data from the furthest to the closest to the medoid
     sorted_data = [v for _, v in sorted(zip(medoid_distances, data), key=lambda pair: -pair[0], reverse=False)]

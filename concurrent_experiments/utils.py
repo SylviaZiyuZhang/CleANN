@@ -70,10 +70,10 @@ def test_static_index(
 
 def parse_ann_benchmarks_hdf5(data_path):
     with h5py.File(data_path, "r") as file:
-        gt_neighbors = np.array(file["neighbors"])
-        gt_dists = np.array(file["distances"])
         queries = np.array(file["test"])
         data = np.array(file["train"])
+        gt_neighbors = np.array(file["neighbors"]) if "neighbors" in file.keys() else []
+        gt_dists = np.array(file["distances"]) if "distances" in file.keys() else []
 
         return data, queries, gt_neighbors, gt_dists
 

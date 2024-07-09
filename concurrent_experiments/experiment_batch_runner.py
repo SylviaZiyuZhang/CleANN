@@ -14,6 +14,9 @@ DATASET_NAME_DICT = {
     "redcaps-512-angular": "redcaps",
     "sift-128-euclidean": "sift",
     "glove-100-angular": "glove",
+    "deep-image-96-angular": "deep-image",
+    "spacev-100-euclidean-30m-samples": "spacev-30m",
+    "yandextti-200-mips-10m-subset": "yandextti-10m",
 }
 
 def main():
@@ -94,7 +97,7 @@ def main():
             queries = np.load(data_prefix_path/query_suffix)
         except Exception as ex:
             print(ex)
-            data, queries = load_or_create_test_data(data_prefix_path/"{}/{}.hdf5".format(dataset_name, dataset))
+            data, queries, _, _ = load_or_create_test_data(data_prefix_path/"{}/{}.hdf5".format(dataset_name, dataset))
         if shuffle:
             np.random.seed(42)
             np.random.shuffle(data)
