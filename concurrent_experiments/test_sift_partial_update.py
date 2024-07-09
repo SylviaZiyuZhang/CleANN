@@ -136,7 +136,7 @@ def get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_nam
 
     return all_neighbor_ids, all_dists
 
-def load_or_create_test_data(path, size=100, dimension=10, n_queries=10, gt_k=100):
+def load_or_create_test_data(path, size=100, dimension=10, n_queries=10, gt_k=100, creat=False):
     """
     Requires:
         path: string
@@ -156,8 +156,9 @@ def load_or_create_test_data(path, size=100, dimension=10, n_queries=10, gt_k=10
     """
     try:
         return parse_ann_benchmarks_hdf5(path)
-    except h5py.FileNotFoundError:
-        pass
+    except:
+        if not create:
+            return [], [], [], []
     
     data = np.random.normal(size=(size, dimension), scale=1000.0)
     queries = np.random.normal(size=(n_queries, dimension), scale=1000.0)
