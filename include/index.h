@@ -284,7 +284,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // @pool must be sorted before calling
     void occlude_list(const uint32_t location, std::vector<Neighbor> &pool, const float alpha, const uint32_t degree,
                       const uint32_t maxc, std::vector<uint32_t> &result, InMemQueryScratch<T> *scratch, bool path_compress,
-                      const tsl::robin_set<uint32_t> *const delete_set_ptr = nullptr);
+                      const tsl::robin_map<uint32_t, uint32_t> *const delete_set_ptr = nullptr);
 
     // add reverse links from all the visited nodes to node n.
     void inter_insert(uint32_t n, std::vector<uint32_t> &pruned_list, const uint32_t range,
@@ -304,7 +304,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
 
     // Acquire exclusive _tag_lock before calling
     size_t release_location(int location);
-    size_t release_locations(const tsl::robin_set<uint32_t> &locations);
+    size_t release_locations(const tsl::robin_map<uint32_t, uint32_t> &locations);
 
     // Resize the index when no slots are left for insertion.
     // Acquire exclusive _update_lock and _tag_lock before calling.
@@ -321,7 +321,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // Remove deleted nodes from adjacency list of node loc
     // Replace removed neighbors with second order neighbors.
     // Also acquires _locks[i] for i = loc and out-neighbors of loc.
-    void process_delete(const tsl::robin_set<uint32_t> &old_delete_set, size_t loc, const uint32_t range,
+    void process_delete(const tsl::robin_map<uint32_t, uint32_t> &old_delete_set, size_t loc, const uint32_t range,
                         const uint32_t maxc, const float alpha, InMemQueryScratch<T> *scratch);
 
     /*
@@ -441,7 +441,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // immediately available for insert. consolidate_delete will release these
     // slots to _empty_slots.
     natural_number_set<uint32_t> _empty_slots;
-    std::unique_ptr<tsl::robin_set<uint32_t>> _delete_set;
+    std::unique_ptr<tsl::robin_map<uint32_t, uint32_t>> _delete_set;
 
     bool _data_compacted = true;    // true if data has been compacted
     bool _is_saved = false;         // Checking if the index is already saved.

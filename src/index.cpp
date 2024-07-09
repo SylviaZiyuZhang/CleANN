@@ -49,7 +49,7 @@ Index<T, TagT, LabelT>::Index(const IndexConfig &index_config, std::unique_ptr<A
       _enable_tags(index_config.enable_tags), _indexingMaxC(DEFAULT_MAXC), _query_scratch(nullptr),
       _pq_dist(index_config.pq_dist_build), _use_opq(index_config.use_opq),
       _filtered_index(index_config.filtered_index), _num_pq_chunks(index_config.num_pq_chunks),
-      _delete_set(new tsl::robin_set<uint32_t>), _conc_consolidate(index_config.concurrent_consolidate)
+      _delete_set(new tsl::robin_map<uint32_t, uint32_t>), _conc_consolidate(index_config.concurrent_consolidate)
 {
     if (_dynamic_index && !_enable_tags)
     {
@@ -270,7 +270,7 @@ size_t Index<T, TagT, LabelT>::save_delete_list(const std::string &filename)
     uint32_t i = 0;
     for (auto &del : *_delete_set)
     {
-        delete_list[i++] = del;
+        delete_list[i++] = del.first;
     }
     return save_bin<uint32_t>(filename, delete_list.get(), _delete_set->size(), 1);
 }
@@ -603,7 +603,9 @@ size_t Index<T, TagT, LabelT>::load_delete_set(const std::string &filename)
     assert(ndim == 1);
     for (uint32_t i = 0; i < npts; i++)
     {
-        _delete_set->insert(delete_list[i]);
+        // TODO (SylviaZiyuZhang): fix the load and store functionality to preserve
+        // hit counts
+        _delete_set->insert({delete_list[i], 0});
     }
     return npts;
 }
@@ -1117,7 +1119,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             copy_of_neighbors.reserve(neighbors.size());
             copy_of_neighbors.assign(neighbors.begin(), neighbors.end());
             #if MEMORY_COLLECTION
-            if (_delete_set->find(n) != _delete_set->end() && _graph_store->get_incoming_degree_count(n) <= 1) {
+            // if (_delete_set->find(n) != _delete_set->end() && _graph_store->get_incoming_degree_count(n) <= 1) {
+            if (_delete_set->find(n) != _delete_set->end() && (_delete_set->find(n)).value() >= 10) {
                 {
                     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
                     _delete_set->erase(n);
@@ -1481,7 +1484,7 @@ template <typename T, typename TagT, typename LabelT>
 void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<Neighbor> &pool, const float alpha,
                                           const uint32_t degree, const uint32_t maxc, std::vector<uint32_t> &result,
                                           InMemQueryScratch<T> *scratch, bool path_compress,
-                                          const tsl::robin_set<uint32_t> *const delete_set_ptr)
+                                          const tsl::robin_map<uint32_t, uint32_t> *const delete_set_ptr)
 {
     if (pool.size() == 0)
         return;
@@ -2868,7 +2871,7 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
 }
 
 template <typename T, typename TagT, typename LabelT>
-inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_set<uint32_t> &old_delete_set, size_t loc,
+inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_map<uint32_t, uint32_t> &old_delete_set, size_t loc,
                                                    const uint32_t range, const uint32_t maxc, const float alpha,
                                                    InMemQueryScratch<T> *scratch)
 // loc is a possible still live incoming neighbor of a deleted point
@@ -2961,17 +2964,19 @@ inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t ra
     bool modify = false;
     for (auto ngh : adj_list)
     {
-        if (_delete_set->find(ngh) == _delete_set->end())
+        auto it = _delete_set->find(ngh);
+        if (it == _delete_set->end())
         { // insert not deleted neighbor into expanded_nodes_set
             expanded_nodes_set.insert(ngh);
         }
-        else
+        else if (it.value() < 10) // PREMATURE FREE: does not consolidate anymore after enough hits, avoids deadlock with freeing
         {
             modify = true;
 
             std::unique_lock<non_recursive_mutex> ngh_lock;
             if (_conc_consolidate)
                 ngh_lock = std::unique_lock<non_recursive_mutex>(_locks[ngh]);
+            it.value() += 1;
             for (auto j : _graph_store->get_neighbours((location_t)ngh))
                 if (j != loc && _delete_set->find(j) == _delete_set->end())
                     expanded_nodes_set.insert(j);
@@ -3052,7 +3057,7 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes(const IndexWrit
     diskann::cout << "Starting consolidate_deletes... ";
     std::cout << "Starting consolidate_deletes..." << std::endl;
 
-    std::unique_ptr<tsl::robin_set<uint32_t>> old_delete_set(new tsl::robin_set<uint32_t>);
+    std::unique_ptr<tsl::robin_map<uint32_t, uint32_t>> old_delete_set(new tsl::robin_map<uint32_t, uint32_t>);
     {
         std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
         std::swap(_delete_set, old_delete_set);
@@ -3302,15 +3307,15 @@ template <typename T, typename TagT, typename LabelT> size_t Index<T, TagT, Labe
 }
 
 template <typename T, typename TagT, typename LabelT>
-size_t Index<T, TagT, LabelT>::release_locations(const tsl::robin_set<uint32_t> &locations)
+size_t Index<T, TagT, LabelT>::release_locations(const tsl::robin_map<uint32_t, uint32_t> &locations)
 {
     for (auto location : locations)
     {
-        if (_empty_slots.is_in_set(location))
+        if (_empty_slots.is_in_set(location.first))
             throw ANNException("Trying to release location, but location "
                                "already in empty slots",
                                -1, __FUNCSIG__, __FILE__, __LINE__);
-        _empty_slots.insert(location);
+        _empty_slots.insert(location.first);
 
         _nd--;
     }
@@ -3695,7 +3700,7 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
     assert(_tag_to_location[tag] < _max_points);
 
     const auto location = _tag_to_location[tag];
-    _delete_set->insert(location);
+    _delete_set->insert({location, 0});
     _location_to_tag.erase(location);
     _tag_to_location.erase(tag);
 
@@ -3741,7 +3746,7 @@ void Index<T, TagT, LabelT>::lazy_delete(const std::vector<TagT> &tags, std::vec
         else
         {
             const auto location = _tag_to_location[tag];
-            _delete_set->insert(location);
+            _delete_set->insert({location, 0});
             _location_to_tag.erase(location);
             _tag_to_location.erase(tag);
         }
@@ -3763,7 +3768,7 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
     assert(_tag_to_location[tag] < _max_points);
 
     const auto location = _tag_to_location[tag];
-    _delete_set->insert(location);
+    _delete_set->insert({location, 0});
     _location_to_tag.erase(location);
     _tag_to_location.erase(tag);
     // The deleted point being its own delegate means that no incoming neighbor has been found
