@@ -112,7 +112,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
         plan_ids_list = []
         cur_plan = 0
         for plan_name, data, queries, update_list, optional_gt, plan_consolidate in plans:
-            # print("Starting "+ plan_name)
             start_plan_time = time.time()
             recall_count = 0
             search_count = 0
@@ -121,7 +120,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             for i, it in enumerate(update_list):
                 if it[0] == 1 and it[1] < len(queries):
                     actual_queries.append(queries[it[1]])
-                    #print(update_list[i])
                     actual_update_list.append((it[0], len(actual_queries) - 1))
                 else:
                     actual_update_list.append(it)
@@ -131,9 +129,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             results = dynamic_test(
                 dynamic_index._index,
                 data,
-                #queries,
                 actual_queries,
-                #update_list,
                 actual_update_list,
                 query_k=query_k,
                 query_complexity=query_complexity,
@@ -141,7 +137,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 consolidate=consolidate,
                 plan_id=cur_plan,
             )
-            # print("Finished plan", plan_name)
+  
             mse_total = 0
             if optional_gt is not None:
                 for i, it in enumerate(update_list):
@@ -149,18 +145,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                         largest_returned = 0
                         largest_true = 0
                         for k in range(query_k):
-                            try:
-                                if results[0][search_count][k] in optional_gt[i][:query_k]:
-                                    recall_count += 1
-                            except IndexError as ex:
-                                print(results[0].shape)
-                                print(search_count)
-                                
-                                #print(optional_gt.shape)
-                                print(len(optional_gt))
-                                print(len(optional_gt[i]))
-                                print(i)
-                                raise ex
+                            if results[0][search_count][k] in optional_gt[i][:query_k]:
+                                recall_count += 1
                             if largest_returned < results[1][search_count][k]:
                                 largest_returned = results[1][search_count][k]
                             if largest_true < optional_gt[i][k]:

@@ -8,6 +8,7 @@ import math
 from utils import parse_ann_benchmarks_hdf5, run_dynamic_test
 import concurrent.futures
 from pathlib import Path
+from multiprocessing import cpu_count, Pool, RawArray
 
 ROLLING_UPDATE_GET_STATIC_BASELINE = True
 
@@ -69,6 +70,103 @@ def brute_force_knn(data, start, end, query, k=10, return_set=False, metric="l2"
     dists = [-d for (d, _) in neighbors]
     return neighbor_ids, dists
 
+def brute_force_knn_two_parts(data1, data2, start, end, query, k=10, return_set=False, metric="l2"):
+    """
+    data: dataset
+    start: the starting index to compute ground truth neighbors to
+    end: the ending index (non-inclusive) to compute ground truth neighbors to
+    query: the query vector
+    k: the number of ground truth neighbors to compute
+    REQUIRES:
+        - data.shape[1] == len(query) (matching dimensions)
+        - 0 <= start <= end <= len(data)
+    """
+    neighbors = []
+    cur_k = 0
+    dist_func = get_l2_dist
+    if metric == "cosine":
+        dist_func = get_cosine_dist
+    if metric == "mips":
+        dist_func = get_mips_dist
+
+    end1 = len(data1) if end > len(data1) else end
+    for i in range(start, end1):
+        heapq.heappush(neighbors, (-dist_func(query, data1[i]), i))
+        cur_k += 1
+        if cur_k > k:
+            heapq.heappop(neighbors)
+    
+    start2 = 0 if start <= len(data1) else start - len(data1)
+    for i in range(start2, end-len(data1)):
+        heapq.heappush(neighbors, (-dist_func(query, data2[i]), i+len(data1)))
+        cur_k += 1
+        if cur_k > k:
+            heapq.heappop(neighbors)
+
+    if return_set:
+        return set(neighbors)
+    neighbor_ids = [i for (_, i) in neighbors]
+    dists = [-d for (d, _) in neighbors]
+    return neighbor_ids, dists
+
+query_worker_var_dict = {}
+
+def init_sliding_window_ground_truth_single_query_worker(data_raw, data_to_update_raw, data_shape, data_to_update_shape):
+    query_worker_var_dict['data_raw'] = data_raw
+    query_worker_var_dict['data_to_update_raw'] = data_to_update_raw
+    query_worker_var_dict['data_shape'] = data_shape
+    query_worker_var_dict['data_to_update_shape'] = data_to_update_shape
+
+def get_sliding_window_ground_truth_single_query(args):
+    query_index, q, batch_size, k, bigger_k, dist_func, rolling = args
+    data = np.frombuffer(query_worker_var_dict['data_raw']).reshape(query_worker_var_dict['data_shape'])
+    data_to_update = np.frombuffer(query_worker_var_dict['data_to_update_raw']).reshape(query_worker_var_dict['data_to_update_shape'])
+    neighbors = set()
+    result_ids = []
+    result_dists = []
+
+    for i, v in enumerate(data):
+        dist = -dist_func(q, data[i])
+        neighbors.add((dist, i))
+        if len(neighbors) > bigger_k:
+            min_elem = (math.inf, -1)
+            for kk in neighbors:
+                if kk[0] < min_elem[0]:
+                    min_elem = kk
+            assert(min_elem[1] != -1)
+            neighbors.remove(min_elem)
+    knn = heapq.nlargest(k, list(neighbors))
+    result_ids.append([i for (_, i) in knn])
+    result_dists.append([-d for (d, _) in knn])
+
+    # Then, iteratively filter out ids that are too small to mimic the deletion if rolling=True
+    # Groundtruth for insert-only workload if rolling=False
+    for b in range(0, len(data_to_update), batch_size):
+        if rolling:
+            neighbors = set(filter(lambda kk: kk[1] >= b + batch_size, neighbors))
+        if len(neighbors) < k:
+            neighbors = brute_force_knn_two_parts(data, data_to_update, b, b+len(data), q, k=bigger_k, return_set=True)
+            knn = heapq.nlargest(k, list(neighbors))
+            result_ids.append([i for (_, i) in knn])
+            result_dists.append([-d for (d, _) in knn])
+            continue
+        for i in range(b, b + batch_size):
+            # insert the new things
+            neg_new_dist = -dist_func(q, data_to_update[i])
+            min_elem = (math.inf, -1)
+            for kk in neighbors:
+                if kk[0] < min_elem[0]:
+                    min_elem = kk
+            if min_elem[0] < neg_new_dist:
+                neighbors.add((neg_new_dist, i+len(data)))
+                if len(neighbors) >= bigger_k:
+                    neighbors.remove(min_elem)
+        knn = heapq.nlargest(k, list(neighbors))
+        result_ids.append([i for (_, i) in knn])
+        result_dists.append([-d for (d, _) in knn])
+
+    return query_index, result_ids, result_dists
+
 def get_or_create_ground_truth_batch(path, data, start, end, queries, save=False, k=10, dataset_name="sift", size=10000, metric="l2", shuffled_data=False, random_queries=False):
     suffix = ""
     if shuffled_data:
@@ -118,8 +216,14 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
         suffix += "_random_queries"
     if path is None:
         path = Path('/storage/sylziyuz/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)+suffix).expanduser()
+    file_suffix = dataset_name+"_"+str(len(data))+"_rolling_update_gt.hdf5"
     try:
-        return np.load(path/'ids.npy'), np.load(path/'dists.npy')
+        with h5py.File(path/file_suffix, "r") as file:
+            assert(file.attrs['batch_num'] == batch_num)
+            assert(file.attrs['metric'] == metric)
+            ids = np.array(file["neighbors"])
+            dists = np.array(file["distances"])
+        return ids, dists
     except FileNotFoundError:
         if save:
             path.mkdir(parents=True, exist_ok=False)
@@ -130,71 +234,49 @@ def get_or_create_rolling_update_ground_truth(path, data, data_to_update, querie
             dist_func = get_mips_dist
         batch_size = len(data) // batch_num
         bigger_k = 5 * k
-        assert len(data) == len(data_to_update)
-        all_results_ids = [] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
-        all_results_dists = []
-        all_neighbors = [set() for _ in queries]
-        # keep the same section of data in cache for locality for when no update has happened
-        # first compute when no update has happened
-        # Maybe implement KD heap here lmao
-        for i, v in enumerate(data):
-            for j, q in enumerate(queries):
-                dist = -dist_func(q, data[i])
-                all_neighbors[j].add((dist, i))
-                if len(all_neighbors[j]) > bigger_k:
-                    min_elem = (math.inf, -1)
-                    for kk in all_neighbors[j]:
-                        if kk[0] < min_elem[0]:
-                            min_elem = kk
-                    if min_elem[1] == -1:
-                        print(all_neighbors[j])
-                        print(q)
-                    all_neighbors[j].remove(min_elem)
-        
-        all_neighbor_ids = [[] for _ in queries]
-        all_dists = [[] for _ in queries]
-        for j, neighbors in enumerate(all_neighbors):
-            knn = heapq.nlargest(k, list(neighbors))
-            all_neighbor_ids[j] = [i for (_, i) in knn]
-            all_dists[j] = [-d for (d, _) in knn]
-        all_results_ids.append(all_neighbor_ids)
-        all_results_dists.append(all_dists)
 
-        # Then, iteratively filter out ids that are too small to mimic the deletion
-        for b in range(0, len(data), batch_size):
-            for j, q in enumerate(queries):
-                all_neighbors[j] = set(filter(lambda kk: kk[1] >= b+batch_size, all_neighbors[j]))
-                if len(all_neighbors[j]) < k:
-                    all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
-                    continue
-                for i in range(b, b + batch_size):
-                    # insert the new things
-                    neg_new_dist = -dist_func(q, data_to_update[i])
-                    min_elem = (math.inf, -1)
-                    for kk in all_neighbors[j]:
-                        if kk[0] < min_elem[0]:
-                            min_elem = kk
-                    if min_elem[0] < neg_new_dist:
-                        all_neighbors[j].add((neg_new_dist, i+len(data)))
-                        if len(all_neighbors[j]) >= bigger_k:
-                            all_neighbors[j].remove(min_elem)
+        all_results_ids_by_query = [[] for _ in queries] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
+        all_results_dists_by_query = [[] for _ in queries]
+        data_shape = data.shape
+        data_raw = RawArray('d', data.shape[0] * data.shape[1])
+        data_np = np.frombuffer(data_raw, dtype=float).reshape(data_shape)
+        np.copyto(data_np, data)
+        data_to_update_shape = data_to_update.shape
+        data_to_update_raw = RawArray('d', data_to_update.shape[0] * data_to_update.shape[1])
+        data_to_update_np = np.frombuffer(data_to_update_raw).reshape(data_to_update_shape)
+        np.copyto(data_to_update_np, data_to_update)
+        proc_count = max(1, cpu_count() - 4)
 
-            all_neighbor_ids = [[] for _ in queries]
-            all_dists = [[] for _ in queries]
-            for j, neighbors in enumerate(all_neighbors):
-                knn = heapq.nlargest(k, list(neighbors))
-                all_neighbor_ids[j] = [i for (_, i) in knn]
-                all_dists[j] = [-d for (d, _) in knn]
-            all_results_ids.append(all_neighbor_ids)
-            all_results_dists.append(all_dists)
+        with Pool(processes=proc_count, initializer=init_sliding_window_ground_truth_single_query_worker, initargs=(data_raw, data_to_update_raw, data_shape, data_to_update_shape)) as pool:
+            args = [
+                (j, q, batch_size, k, bigger_k, dist_func, True)
+                for j, q in enumerate(queries)
+            ]
+            results = pool.map(get_sliding_window_ground_truth_single_query, args)
+            for j, result_ids, result_dists in results:
+                all_results_ids_by_query[j] = result_ids
+                all_results_dists_by_query[j] = result_dists 
         
+        all_results_ids_np = np.transpose(np.array(all_results_ids_by_query), (1, 0, 2))
+        all_results_dists_np = np.transpose(np.array(all_results_dists_by_query), (1, 0, 2))
+        assert(all_results_dists_np.shape[0] == batch_num + 1)
+        assert(all_results_dists_np.shape[1] == len(queries))
+        assert(all_results_dists_np.shape[2] == k)
+        assert(all_results_ids_np.shape[0] == batch_num + 1)
+        assert(all_results_ids_np.shape[1] == len(queries))
+        assert(all_results_ids_np.shape[2] == k)
         if save:
-            np.save(path/'ids.npy', all_results_ids)
-            np.save(path/'dists.npy', all_results_dists)
-        return all_results_ids, all_results_dists
+            with h5py.File(path/file_suffix, "w") as file:
+                file.attrs['batch_num'] = batch_num
+                file.attrs['metric'] = metric
+                file.create_dataset('neighbors', data=all_results_ids_np)
+                file.create_dataset('distances', data=all_results_dists_np)
+            #np.save(path/'ids.npy', all_results_ids_np)
+            #np.save(path/'dists.npy', all_results_dists_np)
+        return all_results_ids_np, all_results_dists_np
 
 
-def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2", shuffled_data=False, random_queries=False):
+def get_or_create_insert_only_ground_truth(path, data, data_to_update, queries, save=False, batch_num=100, dataset_name="sift", k=10, metric="l2", shuffled_data=False, random_queries=False):
     suffix = ""
     if shuffled_data:
         suffix += "_shuffled"
@@ -202,8 +284,14 @@ def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_up
         suffix += "_random_queries"
     if path is None:
         path = Path('/storage/sylziyuz/ann_batch_insert_gt/'+dataset_name+"_"+metric+"_"+str(len(data))+"_"+str(batch_num)+suffix).expanduser()
+    file_suffix = dataset_name+"_"+str(len(data))+"_batch_insert_gt.hdf5"
     try:
-        return np.load(path/'ids.npy'), np.load(path/'dists.npy')
+        with h5py.File(path/file_suffix, "r") as file:
+            assert(file.attrs['batch_num'] == batch_num)
+            assert(file.attrs['metric'] == metric)
+            ids = np.array(file["neighbors"])
+            dists = np.array(file["distances"])
+        return ids, dists
     except FileNotFoundError:
         if save:
             path.mkdir(parents=True, exist_ok=False)
@@ -214,62 +302,47 @@ def get_or_create_rolling_update_insert_only_ground_truth(path, data, data_to_up
             dist_func = get_mips_dist
         batch_size = len(data) // batch_num
         bigger_k = 5 * k
-        assert len(data) == len(data_to_update)
-        all_results_ids = [] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
-        all_results_dists = []
-        all_neighbors = [set() for _ in queries]
-        # keep the same section of data in cache for locality for when no update has happened
-        # first compute when no update has happened
-        # Maybe implement KD heap here lmao
-        for i, v in enumerate(data):
-            for j, q in enumerate(queries):
-                all_neighbors[j].add((-distfunc(q, data[i]), i))
-                if len(all_neighbors[j]) > bigger_k:
-                    min_elem = (math.inf, -1)
-                    for kk in all_neighbors[j]:
-                        if kk[0] < min_elem[0]:
-                            min_elem = kk
-                    all_neighbors[j].remove(min_elem)
+
+        all_results_ids_by_query = [[] for _ in queries] # first dimension is batch, first item is initial ground truth (without any updates. Second dimension is queries
+        all_results_dists_by_query = [[] for _ in queries]
+        data_shape = data.shape
+        print(data.shape[0], data.shape[1])
+        data_raw = RawArray('d', data.shape[0] * data.shape[1])
+        data_np = np.frombuffer(data_raw, dtype=float).reshape(data_shape)
+        np.copyto(data_np, data)
+        data_to_update_shape = data_to_update.shape
+        data_to_update_raw = RawArray('d', data_to_update.shape[0] * data_to_update.shape[1])
+        data_to_update_np = np.frombuffer(data_to_update_raw).reshape(data_to_update_shape)
+        np.copyto(data_to_update_np, data_to_update)
+        proc_count = max(1, cpu_count() - 4)
+
+        with Pool(processes=proc_count, initializer=init_sliding_window_ground_truth_single_query_worker, initargs=(data_raw, data_to_update_raw, data_shape, data_to_update_shape)) as pool:
+            args = [
+                (j, q, batch_size, k, bigger_k, dist_func, False) # rolling=False, not filtering out old neighbors.
+                for j, q in enumerate(queries)
+            ]
+            results = pool.map(get_sliding_window_ground_truth_single_query, args)
+            for j, result_ids, result_dists in results:
+                all_results_ids_by_query[j] = result_ids
+                all_results_dists_by_query[j] = result_dists 
         
-        all_neighbor_ids = [[] for _ in queries]
-        all_dists = [[] for _ in queries]
-        for j, neighbors in enumerate(all_neighbors):
-            knn = heapq.nlargest(k, list(neighbors))
-            all_neighbor_ids[j] = [i for (_, i) in knn]
-            all_dists[j] = [-d for (d, _) in knn]
-        all_results_ids.append(all_neighbor_ids)
-        all_results_dists.append(all_dists)
-
-        # Then, iteratively filter out ids that are too small to mimic the deletion
-        for b in range(0, len(data), batch_size):
-            for j, q in enumerate(queries):
-                if len(all_neighbors[j]) < k:
-                    all_neighbors[j] = brute_force_knn(np.concatenate((data, data_to_update)), b, b+len(data), q, k=bigger_k, return_set=True)
-                    continue
-                for i in range(b, b + batch_size):
-                    # insert the new things
-                    neg_new_dist = -dist_func(q, data_to_update[i])
-                    min_elem = (math.inf, -1)
-                    for kk in all_neighbors[j]:
-                        if kk[0] < min_elem[0]:
-                            min_elem = kk
-                    if min_elem[0] < neg_new_dist:
-                        all_neighbors[j].add((neg_new_dist, i+len(data)))
-                        if len(all_neighbors[j]) >= bigger_k:
-                            all_neighbors[j].remove(min_elem)
-
-            all_neighbor_ids = [[] for _ in queries]
-            all_dists = [[] for _ in queries]
-            for j, neighbors in enumerate(all_neighbors):
-                knn = heapq.nlargest(k, list(neighbors))
-                all_neighbor_ids[j] = [i for (_, i) in knn]
-                all_dists[j] = [-d for (d, _) in knn]
-            all_results_ids.append(all_neighbor_ids)
-            all_results_dists.append(all_dists)
+        all_results_ids_np = np.transpose(np.array(all_results_ids_by_query), (1, 0, 2))
+        all_results_dists_np = np.transpose(np.array(all_results_dists_by_query), (1, 0, 2))
+        print(all_results_dists_np.shape, all_results_ids_np.shape)
+        assert(all_results_dists_np.shape[0] == batch_num + 1)
+        assert(all_results_dists_np.shape[1] == len(queries))
+        assert(all_results_dists_np.shape[2] == k)
+        assert(all_results_ids_np.shape[0] == batch_num + 1)
+        assert(all_results_ids_np.shape[1] == len(queries))
+        assert(all_results_ids_np.shape[2] == k)
         if save:
-            np.save(path/'ids.npy', all_results_ids)
-            np.save(path/'dists.npy', all_results_dists)
-        return all_results_ids, all_results_dists
+            with h5py.File(path/file_suffix, "w") as file:
+                file.attrs['batch_num'] = batch_num
+                file.attrs['metric'] = metric
+                file.create_dataset('neighbors', data=all_results_ids_np)
+                file.create_dataset('distances', data=all_results_dists_np)
+        return all_results_ids_np, all_results_dists_np
+
     
 
 def get_ground_truth_batch_parallel(data, start, end, queries, k=10, dataset_name="sift", size=10000):
@@ -521,19 +594,19 @@ def small_batch_gradual_update_experiment(data, queries, dataset_name, gt_data_p
 
     # ============================== get static recall ==============================
     if ROLLING_UPDATE_GET_STATIC_BASELINE:
-        for i in range(0, size, update_batch_size):
-            lookup = [(1, i) for i in range(len(queries))]
+        for i in range(0, size + update_batch_size, update_batch_size):
+            lookup = [(1, j) for j in range(len(queries))]
             experiment_name = "{}_{}_{}_{}_rolling_update_static_baseline_{}_{}".format(dataset_name, size, setting_name, metric, i, i+size)
             run_dynamic_test(
-                [("Search", data, queries, lookup, gt_neighbors, False)],
-                all_gt_neighbors[1 + i // update_batch_size],
-                all_gt_dists[1 + i // update_batch_size],
+                [("Search", data, queries, lookup, all_gt_neighbors[i // update_batch_size], False)],
+                all_gt_neighbors[i // update_batch_size],
+                all_gt_dists[i // update_batch_size],
                 max_vectors=len(data),
                 experiment_name=experiment_name,
                 distance_metric=metric,
                 batch_build=True,
                 batch_build_data=data[i:i+size],
-                batch_build_tags=[i for i in range(i+1, i+size+1)],
+                batch_build_tags=[j for j in range(i+1, i+size+1)],
                 query_k=query_k,
                 build_complexity=build_complexity,
                 query_complexity=query_complexity,
