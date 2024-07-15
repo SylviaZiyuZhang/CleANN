@@ -321,7 +321,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     /*
         Another signature for process_delete for consolidation on the fly. Thread-safe.
     */
-    void process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha, std::unique_lock<std::shared_timed_mutex> &delete_lock);
+    void process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha);
 
     void initialize_query_scratch(uint32_t num_threads, uint32_t search_l, uint32_t indexing_l, uint32_t r,
                                   uint32_t maxc, size_t dim);
@@ -453,6 +453,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
 
     // Per node lock, cardinality=_max_points + _num_frozen_points
     std::vector<non_recursive_mutex> _locks;
+    std::vector<non_recursive_mutex> _tombstone_state_locks;
 
     static const float INDEX_GROWTH_FACTOR;
 

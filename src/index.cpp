@@ -259,6 +259,7 @@ template <typename T, typename TagT, typename LabelT> size_t Index<T, TagT, Labe
     return _graph_store->store(graph_file, _nd + _num_frozen_pts, _num_frozen_pts, _start);
 }
 
+// TODO (SylviaZiyuZhang): Modify this for the new tombstone recording.
 template <typename T, typename TagT, typename LabelT>
 size_t Index<T, TagT, LabelT>::save_delete_list(const std::string &filename)
 {
@@ -477,6 +478,7 @@ void Index<T, TagT, LabelT>::compare_with_alt_graph(const char *alt_filename)
 
 }
 
+// TODO: Modify this for the new tombstone record
 #ifdef EXEC_ENV_OLS
 template <typename T, typename TagT, typename LabelT>
 size_t Index<T, TagT, LabelT>::load_tags(AlignedFileReader &reader)
@@ -583,6 +585,7 @@ size_t Index<T, TagT, LabelT>::load_data(std::string filename)
     return file_num_points;
 }
 
+// TODO (SylviaZiyuZhang): Modify this for the new tombstone records
 #ifdef EXEC_ENV_OLS
 template <typename T, typename TagT, typename LabelT>
 size_t Index<T, TagT, LabelT>::load_delete_set(AlignedFileReader &reader)
@@ -1119,14 +1122,14 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             copy_of_neighbors.reserve(neighbors.size());
             copy_of_neighbors.assign(neighbors.begin(), neighbors.end());
             #if MEMORY_COLLECTION
-            // if (_delete_set->find(n) != _delete_set->end() && _graph_store->get_incoming_degree_count(n) <= 1) {
-            if (_delete_set->find(n) != _delete_set->end() && (_delete_set->find(n)).value() >= 10) {
+            _tombstone_state_locks[n].lock();
+            if (_graph_store->get_num_consolidates(n) >= 10) {
                 {
-                    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
-                    _delete_set->erase(n);
+                    _graph_store->mark_live(n);
                     release_location(n);
                 }
             }
+            _tombstone_state_locks[n].unlock();
             #endif
             if (_dynamic_index)
                 _locks[n].unlock();
@@ -1145,9 +1148,11 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
             if (is_not_visited(id)) {
                 #if ITERATION_SKIPS_TOMBSTONES
-                if (_delete_set->find(id) == _delete_set->end()) {
+                _tombstone_state_locks[id].lock();
+                if (!_graph_store->is_tombstoned(id)) {
                     id_scratch.push_back(id);
                 }
+                _tombstone_state_locks[id].unlock()
                 #else
                 id_scratch.push_back(id);
                 #endif
@@ -1201,52 +1206,54 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
             #if FIXES_DELETES_LOWER_LAYER
             auto dc = id_scratch[m];
-            if (_delete_set->find(dc) != _delete_set->end() && dc != n) {
+            _tombstone_state_locks[dc].lock();
+            if (_graph_store->is_tombstoned(dc) && dc != n) {
                 fix_this = true;
             }
+            _tombstone_state_locks[dc].unlock();
             #endif
         }
         #if FIXES_DELETES_LOWER_LAYER
-        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
         // Protection for possible concurrent access with other lazy_delete calls.
-        // std::unique_lock<std::shared_timed_mutex> delete_lock(_delete_lock, std::defer_lock);
-        // delete_lock.lock();
-        dl.lock();
-        if (fix_this && _delete_set->find(n) == _delete_set->end()) {
-            process_delete(n, _indexingRange, _indexingMaxC, _indexingAlpha, dl);
-        } else {
-            dl.unlock();
+        _tombstone_state_locks[n].lock();
+        bool n_live = !_graph_store->is_tombstoned(n);
+        _tombstone_state_locks[n].unlock();
+        if (fix_this && n_live) {
+            process_delete(n, _indexingRange, _indexingMaxC, _indexingAlpha);
         }
         #endif
 
         // TODO (SylviaZiyuZhang): Maybe try to give this work to another worker
         #if INSERT_FIXES_DELETES
         // TODO (SylviaZiyuZhang): Try removing the constraint that n has to be live.
-        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
-        dl.lock();
-        if (_delete_set->find(n) != _delete_set->end() && !search_invocation && !fixed && n != pred_id && _delete_set->find(pred_id) == _delete_set->end()) { // n is deleted
+        _tombstone_state_locks[n].lock();
+        bool n_live = !_graph_store->is_tombstoned(n);
+        _tombstone_state_locks[n].unlock();
+        _tombstone_state_locks[pred_id].lock();
+        bool pred_live = !_graph_store->is_tombstoned(pred_id);
+        _tombstone_state_locks[pred_id]unlock();
+        if (!n_live && !search_invocation && !fixed && n != pred_id && pred_live) { // n is deleted
             // This fixes one child
             // add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
 
             // This fixes one parent
-            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha, dl);
-        } else {
-            dl.unlock();
+            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
         }
         #endif
 
         #if SEARCH_FIXES_DELETES
         // TODO (SylviaZiyuZhang): Figure out the locking situation here
-        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
-        dl.lock();
-        if (_delete_set->find(n) != _delete_set->end() && search_invocation && !fixed && n != pred_id && _delete_set->find(pred_id) == _delete_set->end()) { // n is deleted
+        _tombstone_state_locks[n].lock();
+        bool n_live = !_graph_store->is_tombstoned(n);
+        _tombstone_state_locks[n].unlock();
+        _tombstone_state_locks[pred_id].lock();
+        bool pred_live = !_graph_store->is_tombstoned(pred_id);
+        if (!n_live && search_invocation && !fixed && n != pred_id && pred_live) { // n is deleted
             // This fixes one child
             //add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
 
             // This fixes one parent
-            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha, dl);
-        } else {
-            dl.unlock();
+            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
         }
         #endif
 
@@ -2891,8 +2898,7 @@ inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_map<uint32_t
 
 
 template <typename T, typename TagT, typename LabelT>
-inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha,
-        std::unique_lock<std::shared_timed_mutex> &delete_lock)
+inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha)
 // loc is a possible still live incoming neighbor of a deleted point
 {
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
@@ -2900,12 +2906,10 @@ inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t ra
     tsl::robin_set<uint32_t> &expanded_nodes_set = scratch->expanded_nodes_set();
     std::vector<Neighbor> &expanded_nghrs_vec = scratch->expanded_nodes_vec();
 
-    // TODO: (SylviaZiyuZhang) This should not be necessary, try removing it.
-    assert(_delete_set->find((uint32_t)loc) == _delete_set->end());
-
     std::vector<uint32_t> adj_list;
     {
         // Acquire and release lock[loc] before acquiring locks for neighbors
+        // TODO (SylviaZiyuZhang): Move this lock up to the caller
         std::unique_lock<non_recursive_mutex> adj_list_lock;
         if (_conc_consolidate)
             adj_list_lock = std::unique_lock<non_recursive_mutex>(_locks[loc]);
@@ -2915,25 +2919,31 @@ inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t ra
     bool modify = false;
     for (auto ngh : adj_list)
     {
-        auto it = _delete_set->find(ngh);
-        if (it == _delete_set->end())
+        _tombstone_state_locks[ngh].lock();
+        int ngh_hits = _graph_store->get_num_consolidates(ngh);
+        if (ngh_hits < 0)
         { // insert not deleted neighbor into expanded_nodes_set
             expanded_nodes_set.insert(ngh);
+            _tombstone_state_locks[ngh].unlock();
         }
-        else if (it.value() < 10) // PREMATURE FREE: does not consolidate anymore after enough hits, avoids deadlock with freeing
+        else if (ngh_hits < 10) // PREMATURE FREE: does not consolidate anymore after enough hits, avoids deadlock with freeing
         {
             modify = true;
-
+            _graph_store->record_consolidate(ngh);
+            _tombstone_state_locks[ngh].unlock();
             std::unique_lock<non_recursive_mutex> ngh_lock;
             if (_conc_consolidate)
                 ngh_lock = std::unique_lock<non_recursive_mutex>(_locks[ngh]);
-            it.value() += 1;
-            for (auto j : _graph_store->get_neighbours((location_t)ngh))
-                if (j != loc && _delete_set->find(j) == _delete_set->end())
+            for (auto j : _graph_store->get_neighbours((location_t)ngh)) {
+                _tombstone_state_locks[j].lock();
+                if (j != loc && !_graph_store->is_tombstoned(j))
                     expanded_nodes_set.insert(j);
+                _tombstone_state_locks[j].unlock();
+            }
+        } else {
+            _tombstone_state_locks[ngh].unlock();
         }
     }
-    delete_lock.unlock();
 
     if (modify)
     {
@@ -3241,6 +3251,7 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
 
         location = _empty_slots.pop_any();
         _delete_set->erase(location);
+        _graph_store->mark_live(location);
     }
     ++_nd;
     return location;
@@ -3652,6 +3663,9 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
 
     const auto location = _tag_to_location[tag];
     _delete_set->insert({location, 0});
+    _tombstone_state_locks[location].lock();
+    _graph_store->mark_tombstoned(location);
+    _tombstone_state_locks[location].unlock();
     _location_to_tag.erase(location);
     _tag_to_location.erase(tag);
 
@@ -3680,6 +3694,7 @@ void Index<T, TagT, LabelT>::lazy_delete(const std::vector<TagT> &tags, std::vec
         {
             const auto location = _tag_to_location[tag];
             _delete_set->insert({location, 0});
+            _graph_store->mark_tombstoned(location);
             _location_to_tag.erase(location);
             _tag_to_location.erase(tag);
         }
@@ -3734,7 +3749,6 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     diskann::cout << "Location to tag size: " << _location_to_tag.size() << std::endl;
     diskann::cout << "Tag to location size: " << _tag_to_location.size() << std::endl;
     diskann::cout << "Number of empty slots: " << _empty_slots.size() << std::endl;
-    diskann::cout << "Number of tombstoned points: " << _delete_set->size() << std::endl;
     diskann::cout << std::boolalpha << "Data compacted: " << this->_data_compacted << std::endl;
     diskann::cout << "---------------------------------------------------------"
                      "------------"
