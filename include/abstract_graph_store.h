@@ -46,15 +46,11 @@ class AbstractGraphStore
     virtual size_t get_edge_count() = 0;
 
     // dynamic consolidation
-    // TODO (SylviaZiyuZhang): support concurrency with compare and swap
-    virtual location_t get_incoming_delegate(const location_t i) = 0;
-    virtual location_t get_outgoing_delegate(const location_t i) = 0;
-    virtual size_t get_incoming_degree_count(const location_t i) = 0;
-    // returns the degree after the change
-    virtual size_t increment_incoming_degree_count(const location_t i) = 0;
-    virtual size_t decrement_incoming_degree_count(const location_t i) = 0;
-    virtual void set_incoming_delegate(const location_t i, location_t d) = 0;
-    virtual void set_outgoing_delegate(const location_t i, location_t d) = 0;
+    virtual bool is_tombstoned(const location_t i) = 0;
+    virtual int get_num_consolidates(const location_t i) = 0;
+    virtual void record_consolidate(const location_t i) = 0;
+    virtual void mark_live(const location_t i) = 0;
+    virtual void mark_tombstoned(const location_t i) = 0;
 
     // Total internal points _max_points + _num_frozen_points
     size_t get_total_points()

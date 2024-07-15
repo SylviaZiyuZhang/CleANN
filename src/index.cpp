@@ -1151,39 +1151,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                 #else
                 id_scratch.push_back(id);
                 #endif
-                #if COMPLICATED_DYNAMIC_DELETE
-                if (_delete_set->find(id) != _delete_set->end()) {
-                    auto cur_id_incoming = id;
-                    auto cur_id_outgoing = id;
-                    while (true) { // TODO (SylviaZiyuZhang): Does this terminate? Is it guaranteed that there will be
-                    // a delegate? Also substitution is not implemented yet. We should compress this too
-                        auto outgoing_delegate = _graph_store->get_outgoing_delegate(cur_id_outgoing);
-                        if (_delete_set->find(outgoing_delegate) == _delete_set->end()) {
-                            if (is_not_visited(outgoing_delegate))
-                                id_scratch.push_back(outgoing_delegate);
-                            break;
-                        }
-                        cur_id_outgoing = outgoing_delegate;
-                    }
-                    while (true) { // TODO (SylviaZiyuZhang): be extra careful with this termination condition
-                        auto incoming_delegate = _graph_store->get_incoming_delegate(cur_id_incoming);
-                        if (cur_id_incoming == incoming_delegate) {
-                            _graph_store->set_incoming_delegate(cur_id_incoming, n);
-                            break;
-                        }
-                        if (_delete_set->find(incoming_delegate) == _delete_set->end()) {
-                            if (is_not_visited(incoming_delegate))
-                                id_scratch.push_back(incoming_delegate);
-                            break;
-                        }
-                        cur_id_incoming = incoming_delegate;
-                    }
-                    // TODO (SylviaZiyuZhang): lock this
-                    // TODO (SylviaZiyuZhang): this is definitely not correct
-                    add_multiple_neighbors_and_prune(n, _graph_store->get_neighbours(cur_id_outgoing), n);
-                    _graph_store->set_incoming_delegate(id, n);
-                }
-                #endif
             }
         }
             
@@ -1254,18 +1221,10 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
         // TODO (SylviaZiyuZhang): Maybe try to give this work to another worker
         #if INSERT_FIXES_DELETES
-        // TODO (SylviaZiyuZhang): Maybe fix after outgoing_delegate is explored
         // TODO (SylviaZiyuZhang): Try removing the constraint that n has to be live.
         std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
         dl.lock();
         if (_delete_set->find(n) != _delete_set->end() && !search_invocation && !fixed && n != pred_id && _delete_set->find(pred_id) == _delete_set->end()) { // n is deleted
-            // TODO (SylviaZiyuZhang): This is the star idea
-            // _graph_store->set_incoming_delegate(n, pred_id);
-            // auto outgoing_delegate = copy_of_neighbors[0];
-            // copy_of_neighbors.erase(copy_of_neighbors.begin());
-            // _graph_store->set_outgoing_delegate(n, outgoing_delegate);
-            // add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
-            
             // This fixes one child
             // add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
 
@@ -1278,17 +1237,9 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
         #if SEARCH_FIXES_DELETES
         // TODO (SylviaZiyuZhang): Figure out the locking situation here
-        // TODO (SylviaZiyuZhang): Maybe fix after outgoing_delegate is explored
         std::unique_lock<std::shared_timed_mutex> dl(_delete_lock, std::defer_lock);
         dl.lock();
         if (_delete_set->find(n) != _delete_set->end() && search_invocation && !fixed && n != pred_id && _delete_set->find(pred_id) == _delete_set->end()) { // n is deleted
-            // TODO (SylviaZiyuZhang): This is the star idea
-            // _graph_store->set_incoming_delegate(n, pred_id);
-            // auto outgoing_delegate = copy_of_neighbors[0];
-            // copy_of_neighbors.erase(copy_of_neighbors.begin());
-            // _graph_store->set_outgoing_delegate(n, outgoing_delegate);
-            // add_multiple_neighbors_and_prune(outgoing_delegate, copy_of_neighbors, n);
-            
             // This fixes one child
             //add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
 
@@ -3704,24 +3655,6 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
     _location_to_tag.erase(location);
     _tag_to_location.erase(tag);
 
-    #if COMPLICATED_DYNAMIC_DELETE
-    auto neighbors = _graph_store->get_neighbours(location);
-    auto out_delegate = location;
-    for (auto o: neighbors) {
-        out_delegate = o;
-        while (_delete_set->find(out_delegate) != _delete_set->end())
-            out_delegate = _graph_store->get_outgoing_delegate(out_delegate);
-        if (out_delegate != location)
-            break;
-    }
-    if (out_delegate == location)
-        printf("MAJOR EDGE CASE\n");
-        return 1;
-    _graph_store->set_outgoing_delegate(location, out_delegate);
-    add_multiple_neighbors_and_prune(out_delegate, neighbors, location);
-    _graph_store->clear_neighbours(location);
-    #endif
-
     return 0;
 }
 
@@ -3751,48 +3684,6 @@ void Index<T, TagT, LabelT>::lazy_delete(const std::vector<TagT> &tags, std::vec
             _tag_to_location.erase(tag);
         }
     }
-}
-
-template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>::dynamic_delete(const TagT &tag)
-{
-    std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
-    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
-    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
-    _data_compacted = false;
-
-    if (_tag_to_location.find(tag) == _tag_to_location.end())
-    {
-        diskann::cerr << "Delete tag not found " << tag << std::endl;
-        return -1;
-    }
-    assert(_tag_to_location[tag] < _max_points);
-
-    const auto location = _tag_to_location[tag];
-    _delete_set->insert({location, 0});
-    _location_to_tag.erase(location);
-    _tag_to_location.erase(tag);
-    // The deleted point being its own delegate means that no incoming neighbor has been found
-    _graph_store->set_incoming_delegate(location, location);
-    // TODO (SylviaZiyuZhang): fix the concurrency here
-    auto outgoing_neighbors = _graph_store->get_neighbours(location);
-    auto outgoing_delegate = outgoing_neighbors[0];
-    // TODO (SylviaZiyuZhang): add edges from outgoing delegate to the rest of the neighborhood
-    // and use the appropriatel lock here
-    _graph_store->set_outgoing_delegate(location, outgoing_delegate);
-    // TODO (SylviaZiyuZhang): Should I use erase here?
-    outgoing_neighbors.erase(outgoing_neighbors.begin());
-    // TODO (SylviaZiyuZhang): make sure that outgoing_delegate is not deleted during this.
-    // TODO (SylviaZiyuZhang): make sure that outgoing_neighbors is not modified
-    add_multiple_neighbors_and_prune(outgoing_delegate, outgoing_neighbors, location);
-    
-    return 0;
-}
-
-template <typename T, typename TagT, typename LabelT>
-void Index<T, TagT, LabelT>::dynamic_delete(const std::vector<TagT> &tags, std::vector<TagT> &failed_tags)
-{
-    throw diskann::ANNException("Batch dynamic delete not implemented yet.", -1, __FUNCSIG__,
-                                    __FILE__, __LINE__);
 }
 
 template <typename T, typename TagT, typename LabelT> bool Index<T, TagT, LabelT>::is_index_saved()

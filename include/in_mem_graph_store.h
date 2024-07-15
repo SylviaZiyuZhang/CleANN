@@ -35,14 +35,11 @@ class InMemGraphStore : public AbstractGraphStore
     virtual size_t get_edge_count() override;
 
     // dynamic consolidation
-    // TODO (SylviaZiyuZhang): support concurrency with compare and swap
-    virtual location_t get_incoming_delegate(const location_t i) override;
-    virtual location_t get_outgoing_delegate(const location_t i) override;
-    virtual size_t get_incoming_degree_count(const location_t i) override;
-    virtual size_t increment_incoming_degree_count(const location_t i) override;
-    virtual size_t decrement_incoming_degree_count(const location_t i) override;
-    virtual void set_incoming_delegate(const location_t i, location_t d) override;
-    virtual void set_outgoing_delegate(const location_t i, location_t d) override;
+    virtual bool is_tombstoned(const location_t i) override;
+    virtual int get_num_consolidates(const location_t i) override;
+    virtual void record_consolidate(const location_t i) override;
+    virtual void mark_live(const location_t i) override;
+    virtual void mark_tombstoned(const location_t i) override;
 
   protected:
     virtual std::tuple<uint32_t, uint32_t, size_t> load_impl(const std::string &filename, size_t expected_num_points);
@@ -59,8 +56,10 @@ class InMemGraphStore : public AbstractGraphStore
     uint32_t _max_observed_degree = 0;
 
     std::vector<std::vector<uint32_t>> _graph;
-    std::vector<uint32_t> _incoming_degrees;
-    std::vector<uint32_t> _delegates;
+    // -1 in _consolidate_hits indicates that the point is live
+    // if the point is tombstoned, records the number of times it has been
+    // fixed on-the-fly
+    std::vector<int> _consolidate_hits;
 };
 
 } // namespace diskann
