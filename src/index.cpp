@@ -1070,32 +1070,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                     expanded_nodes.emplace_back(nbr);
                 }
             }
-            #if LAYER_BASED_PATH_COMPRESSION
-            // Add compression edges
-            /* immediate sibling heuristic
-            std::vector<diskann::Neighbor>& siblings = succ_map[pred_id]; // TODO (SylviaZiyuZhang): try going back 2 steps
-            for (auto sibling: siblings) {
-                auto cur_dist_diff = abs(n_dist - sibling.distance);
-                auto prob = min_dist / cur_dist_diff; // TODO (SylviaZiyuZhang): try using square
-                // if (rand() % 100 < prob) {
-                if (true) {
-                    compression_starts.push_back(n);
-                    compression_ends.push_back(sibling.id);
-                    compression_starts.push_back(sibling.id);
-                    compression_ends.push_back(n);
-                }
-            }
-            */
-            /*
-            auto prob = (max_dist - dist_diff) * (max_dist - dist_diff) * 100 / (max_dist * max_dist);
-            if (rand() % 100 < prob) {
-                compression_starts.push_back(n);
-                compression_ends.push_back(pred_map[pred_id]);
-                compression_starts.push_back(pred_map[pred_id]);
-                compression_ends.push_back(n);
-            }
-            */
-            #endif
         }
 
         // Find which of the nodes in des have not been visited before
@@ -1290,29 +1264,31 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
     }
     #if LAYER_BASED_PATH_COMPRESSION
-    std::vector<uint32_t> same_generation_siblings;
-    size_t n_points_considered = 0;
-    size_t cur_layer = 0;
-    while (n_points_considered < depth_record.size()) {
-        for (const auto& p: depth_record) {
-            if (p.second == cur_layer) {
-                n_points_considered ++;
-                if (cur_layer > 9)
-                    same_generation_siblings.push_back(p.first);
-            }
-        }
-        for (uint32_t id1: same_generation_siblings) {
-            for (uint32_t id2: same_generation_siblings) {
-                if (id1 != id2) {
-                    compression_starts.push_back(id1);
-                    compression_ends.push_back(id2);
+    if ((!search_invocation) || improvement_allowed) {
+        std::vector<uint32_t> same_generation_siblings;
+        size_t n_points_considered = 0;
+        size_t cur_layer = 0;
+        while (n_points_considered < depth_record.size()) {
+            for (const auto& p: depth_record) {
+                if (p.second == cur_layer) {
+                    n_points_considered ++;
+                    if (cur_layer > 9)
+                        same_generation_siblings.push_back(p.first);
                 }
             }
+            for (uint32_t id1: same_generation_siblings) {
+                for (uint32_t id2: same_generation_siblings) {
+                    if (id1 != id2) {
+                        compression_starts.push_back(id1);
+                        compression_ends.push_back(id2);
+                    }
+                }
+            }
+            same_generation_siblings.clear();
+            cur_layer ++;
         }
-        same_generation_siblings.clear();
-        cur_layer ++;
+        add_compression_edges(compression_starts, compression_ends, scratch);
     }
-    add_compression_edges(compression_starts, compression_ends, scratch);
     #endif
     return std::make_pair(hops, cmps);
 }
