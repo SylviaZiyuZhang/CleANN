@@ -282,7 +282,7 @@ class DynamicMemoryIndex:
         self._points_deleted = False
 
     def search(
-        self, query: VectorLike, k_neighbors: int, complexity: int
+        self, query: VectorLike, k_neighbors: int, complexity: int, improvement_allowed: bool,
     ) -> QueryResponse:
         """
         Searches the index by a single query vector.
@@ -309,7 +309,7 @@ class DynamicMemoryIndex:
                 f"k_neighbors={k_neighbors} asked for, but list_size={complexity} was smaller. Increasing {complexity} to {k_neighbors}"
             )
             complexity = k_neighbors
-        neighbors, distances = self._index.search(query=_query, knn=k_neighbors, complexity=complexity)
+        neighbors, distances = self._index.search(query=_query, knn=k_neighbors, complexity=complexity, improvement_allowed=improvement_allowed)
         return QueryResponse(identifiers=neighbors, distances=distances)
 
     def batch_search(

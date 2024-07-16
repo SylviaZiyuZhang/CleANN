@@ -883,7 +883,7 @@ bool Index<T, TagT, LabelT>::detect_common_filters(uint32_t point_id, bool searc
 template <typename T, typename TagT, typename LabelT>
 std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     const T *query, const uint32_t Lsize, const std::vector<uint32_t> &init_ids, InMemQueryScratch<T> *scratch,
-    bool use_filter, const std::vector<LabelT> &filter_labels, bool search_invocation)
+    bool use_filter, const std::vector<LabelT> &filter_labels, bool search_invocation, bool improvement_allowed)
 {
     std::vector<Neighbor> &expanded_nodes = scratch->pool();
     NeighborPriorityQueue &best_L_nodes = scratch->best_l_nodes();
@@ -1080,32 +1080,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                     expanded_nodes.emplace_back(nbr);
                 }
             }
-            #if LAYER_BASED_PATH_COMPRESSION
-            // Add compression edges
-            /* immediate sibling heuristic
-            std::vector<diskann::Neighbor>& siblings = succ_map[pred_id]; // TODO (SylviaZiyuZhang): try going back 2 steps
-            for (auto sibling: siblings) {
-                auto cur_dist_diff = abs(n_dist - sibling.distance);
-                auto prob = min_dist / cur_dist_diff; // TODO (SylviaZiyuZhang): try using square
-                // if (rand() % 100 < prob) {
-                if (true) {
-                    compression_starts.push_back(n);
-                    compression_ends.push_back(sibling.id);
-                    compression_starts.push_back(sibling.id);
-                    compression_ends.push_back(n);
-                }
-            }
-            */
-            /*
-            auto prob = (max_dist - dist_diff) * (max_dist - dist_diff) * 100 / (max_dist * max_dist);
-            if (rand() % 100 < prob) {
-                compression_starts.push_back(n);
-                compression_ends.push_back(pred_map[pred_id]);
-                compression_starts.push_back(pred_map[pred_id]);
-                compression_ends.push_back(n);
-            }
-            */
-            #endif
         }
 
         // Find which of the nodes in des have not been visited before
@@ -1301,29 +1275,31 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
     }
     #if LAYER_BASED_PATH_COMPRESSION
-    std::vector<uint32_t> same_generation_siblings;
-    size_t n_points_considered = 0;
-    size_t cur_layer = 0;
-    while (n_points_considered < depth_record.size()) {
-        for (const auto& p: depth_record) {
-            if (p.second == cur_layer) {
-                n_points_considered ++;
-                if (cur_layer > 9)
-                    same_generation_siblings.push_back(p.first);
-            }
-        }
-        for (uint32_t id1: same_generation_siblings) {
-            for (uint32_t id2: same_generation_siblings) {
-                if (id1 != id2) {
-                    compression_starts.push_back(id1);
-                    compression_ends.push_back(id2);
+    if ((!search_invocation) || improvement_allowed) {
+        std::vector<uint32_t> same_generation_siblings;
+        size_t n_points_considered = 0;
+        size_t cur_layer = 0;
+        while (n_points_considered < depth_record.size()) {
+            for (const auto& p: depth_record) {
+                if (p.second == cur_layer) {
+                    n_points_considered ++;
+                    if (cur_layer > 9)
+                        same_generation_siblings.push_back(p.first);
                 }
             }
+            for (uint32_t id1: same_generation_siblings) {
+                for (uint32_t id2: same_generation_siblings) {
+                    if (id1 != id2) {
+                        compression_starts.push_back(id1);
+                        compression_ends.push_back(id2);
+                    }
+                }
+            }
+            same_generation_siblings.clear();
+            cur_layer ++;
         }
-        same_generation_siblings.clear();
-        cur_layer ++;
+        add_compression_edges(compression_starts, compression_ends, scratch);
     }
-    add_compression_edges(compression_starts, compression_ends, scratch);
     #endif
     return std::make_pair(hops, cmps);
 }
@@ -1340,7 +1316,7 @@ void Index<T, TagT, LabelT>::search_for_point_and_prune(int location, uint32_t L
     if (!use_filter)
     {
         _data_store->get_vector(location, scratch->aligned_query());
-        iterate_to_fixed_point(scratch->aligned_query(), Lindex, init_ids, scratch, false, unused_filter_label, false);
+        iterate_to_fixed_point(scratch->aligned_query(), Lindex, init_ids, scratch, false, unused_filter_label, false, true);
     }
     else
     {
@@ -1356,7 +1332,7 @@ void Index<T, TagT, LabelT>::search_for_point_and_prune(int location, uint32_t L
 
         _data_store->get_vector(location, scratch->aligned_query());
         iterate_to_fixed_point(scratch->aligned_query(), filteredLindex, filter_specific_start_nodes, scratch, true,
-                               _location_to_labels[location], false);
+                               _location_to_labels[location], false, true);
 
         // combine candidate pools obtained with filter and unfiltered criteria.
         std::set<Neighbor> best_candidate_pool;
@@ -1369,7 +1345,7 @@ void Index<T, TagT, LabelT>::search_for_point_and_prune(int location, uint32_t L
         scratch->clear();
 
         _data_store->get_vector(location, scratch->aligned_query());
-        iterate_to_fixed_point(scratch->aligned_query(), Lindex, init_ids, scratch, false, unused_filter_label, false);
+        iterate_to_fixed_point(scratch->aligned_query(), Lindex, init_ids, scratch, false, unused_filter_label, false, true);
 
         for (auto unfiltered_neighbour : scratch->pool())
         {
@@ -2556,7 +2532,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::search(const T *query, con
     _data_store->get_dist_fn()->preprocess_query(query, _data_store->get_dims(), scratch->aligned_query());
 
     auto retval =
-        iterate_to_fixed_point(scratch->aligned_query(), L, init_ids, scratch, false, unused_filter_label, true);
+        iterate_to_fixed_point(scratch->aligned_query(), L, init_ids, scratch, false, unused_filter_label, true, false);
 
     NeighborPriorityQueue &best_L_nodes = scratch->best_l_nodes();
 
@@ -2660,7 +2636,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::search_with_filters(const 
     filter_vec.emplace_back(filter_label);
 
     _data_store->get_dist_fn()->preprocess_query(query, _data_store->get_dims(), scratch->aligned_query());
-    auto retval = iterate_to_fixed_point(scratch->aligned_query(), L, init_ids, scratch, true, filter_vec, true);
+    auto retval = iterate_to_fixed_point(scratch->aligned_query(), L, init_ids, scratch, true, filter_vec, true, false);
 
     auto best_L_nodes = scratch->best_l_nodes();
 
@@ -2713,12 +2689,12 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::search_with_filters(const 
 
 template <typename T, typename TagT, typename LabelT>
 size_t Index<T, TagT, LabelT>::_search_with_tags(const DataType &query, const uint64_t K, const uint32_t L,
-                                                 const TagType &tags, float *distances, DataVector &res_vectors)
+                                                 const TagType &tags, float *distances, DataVector &res_vectors, const bool improvement_allowed)
 {
     try
     {
         return this->search_with_tags(std::any_cast<const T *>(query), K, L, std::any_cast<TagT *>(tags), distances,
-                                      res_vectors.get<std::vector<T *>>());
+                                      res_vectors.get<std::vector<T *>>(), improvement_allowed);
     }
     catch (const std::bad_any_cast &e)
     {
@@ -2732,7 +2708,7 @@ size_t Index<T, TagT, LabelT>::_search_with_tags(const DataType &query, const ui
 
 template <typename T, typename TagT, typename LabelT>
 size_t Index<T, TagT, LabelT>::search_with_tags(const T *query, const uint64_t K, const uint32_t L, TagT *tags,
-                                                float *distances, std::vector<T *> &res_vectors)
+                                                float *distances, std::vector<T *> &res_vectors, const bool improvement_allowed)
 {
     if (K > (uint64_t)L)
     {
@@ -2757,7 +2733,7 @@ size_t Index<T, TagT, LabelT>::search_with_tags(const T *query, const uint64_t K
     //_distance->preprocess_query(query, _data_store->get_dims(),
     // scratch->aligned_query());
     _data_store->get_dist_fn()->preprocess_query(query, _data_store->get_dims(), scratch->aligned_query());
-    iterate_to_fixed_point(scratch->aligned_query(), L, init_ids, scratch, false, unused_filter_label, true);
+    iterate_to_fixed_point(scratch->aligned_query(), L, init_ids, scratch, false, unused_filter_label, true, improvement_allowed);
 
     NeighborPriorityQueue &best_L_nodes = scratch->best_l_nodes();
     assert(best_L_nodes.size() <= L);
