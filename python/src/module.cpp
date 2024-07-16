@@ -59,7 +59,7 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
                       const uint32_t>(),
              "distance_metric"_a, "index_path"_a, "num_points"_a, "dimensions"_a, "num_threads"_a,
              "initial_search_complexity"_a)
-        .def("search", &diskannpy::StaticMemoryIndex<T>::search, "query"_a, "knn"_a, "complexity"_a)
+        .def("search", &diskannpy::StaticMemoryIndex<T>::search, "query"_a, "knn"_a, "complexity"_a, "improvement_allowed"_a)
         .def("search_with_filter", &diskannpy::StaticMemoryIndex<T>::search_with_filter, "query"_a, "knn"_a,
              "complexity"_a, "filter"_a)
         .def("batch_search", &diskannpy::StaticMemoryIndex<T>::batch_search, "queries"_a, "num_queries"_a, "knn"_a,
@@ -76,7 +76,7 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
              "filter_complexity"_a = diskann::defaults::FILTER_LIST_SIZE,
              "num_frozen_points"_a = diskann::defaults::NUM_FROZEN_POINTS_DYNAMIC, "initial_search_complexity"_a = 0,
              "search_threads"_a = 0, "concurrent_consolidation"_a = true)
-        .def("search", &diskannpy::DynamicMemoryIndex<T>::search, "query"_a, "knn"_a, "complexity"_a)
+        .def("search", &diskannpy::DynamicMemoryIndex<T>::search, "query"_a, "knn"_a, "complexity"_a, "improvement_allowed"_a)
         .def("load", &diskannpy::DynamicMemoryIndex<T>::load, "index_path"_a)
         .def("batch_search", &diskannpy::DynamicMemoryIndex<T>::batch_search, "queries"_a, "num_queries"_a, "knn"_a,
              "complexity"_a, "num_threads"_a)
@@ -133,8 +133,9 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
             index._index.insert_point(data.data(update_id), id);
         } else if (update_type == 1) { // query
             std::vector<float *> empty_vector;
+            bool improvement_allowed = update_id % 4 == 0;
             index._index.search_with_tags(queries.data(update_id), query_k, query_complexity,
-                                          ids.mutable_data(update_id), dists.mutable_data(update_id), empty_vector);
+                                          ids.mutable_data(update_id), dists.mutable_data(update_id), empty_vector, improvement_allowed);
             // Fix ids
             for (size_t i = 0; i < query_k; i++)
             {
