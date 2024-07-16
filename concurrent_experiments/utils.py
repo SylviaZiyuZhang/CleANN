@@ -117,6 +117,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             start_plan_time = time.time()
             recall_count = 0
             search_count = 0
+            test_search_count = 0
             actual_queries = []
             actual_update_list = []
             for i, it in enumerate(update_list):
@@ -143,19 +144,21 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             mse_total = 0
             if optional_gt is not None:
                 for i, it in enumerate(update_list):
-                    if it[0] == 1 and it[1] < len(queries): # A search query
+                    if it[0] == 1 and it[1] < len(queries): # A search query that does not allow improvements
                         largest_returned = 0
                         largest_true = 0
-                        for k in range(query_k):
-                            if results[0][search_count][k] in optional_gt[i][:query_k]:
-                                recall_count += 1
-                            if largest_returned < results[1][search_count][k]:
-                                largest_returned = results[1][search_count][k]
-                            if largest_true < optional_gt[i][k]:
-                                largest_true = optional_gt[i][k]
-                        mse_total += np.square(largest_returned - largest_true)
+                        if it[1] % 4 != 0:
+                            for k in range(query_k):
+                                if results[0][search_count][k] in optional_gt[i][:query_k]:
+                                    recall_count += 1
+                                if largest_returned < results[1][search_count][k]:
+                                    largest_returned = results[1][search_count][k]
+                                if largest_true < optional_gt[i][k]:
+                                    largest_true = optional_gt[i][k]
+                            mse_total += np.square(largest_returned - largest_true)
+                            test_search_count += 1
                         search_count += 1
-            recall = -1 if search_count == 0 else (recall_count / (search_count * query_k))
+            recall = -1 if search_count == 0 else (recall_count / (test_search_count * query_k))
             mse = -1 if search_count == 0 else mse_total / search_count
             plan_total_time = time.time() - start_plan_time
             all_times[plan_name].append(plan_total_time)
