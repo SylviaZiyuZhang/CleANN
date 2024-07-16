@@ -88,6 +88,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
     all_times = {time_key: [] for time_key in time_keys}
     recall_keys = [plan[0] for plan in plans] + ["Recall"]
     all_recalls = {recall_key: [] for recall_key in recall_keys}
+    build_time = 0
 
     for num_threads in threads:
         start_overall_time = time.time()
@@ -101,8 +102,10 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             graph_degree=graph_degree,
         )
         if batch_build:
+            start_build_time = time.time()
             assert(len(batch_build_data) == len(batch_build_tags))
             dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
+            build_time = time.time() - start_build_time
 
         all_recalls_list = []
         all_mses_list = []
@@ -179,6 +182,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
 
         result = {
             "num_threads": num_threads,
+            "build_time": build_time,
             "plan_names": plan_names_list,
             "recalls": all_recalls_list,
             "mses": all_mses_list,
