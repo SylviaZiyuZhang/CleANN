@@ -99,6 +99,7 @@ Index<T, TagT, LabelT>::Index(const IndexConfig &index_config, std::unique_ptr<A
     _graph_store = std::move(graph_store);
 
     _locks = std::vector<non_recursive_mutex>(total_internal_points);
+    _tombstone_state_locks = std::vector<non_recursive_mutex>(total_internal_points);
     if (_enable_tags)
     {
         _location_to_tag.reserve(total_internal_points);
@@ -176,6 +177,10 @@ template <typename T, typename TagT, typename LabelT> Index<T, TagT, LabelT>::~I
     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
 
     for (auto &lock : _locks)
+    {
+        LockGuard lg(lock);
+    }
+    for (auto &lock : _tombstone_state_locks)
     {
         LockGuard lg(lock);
     }
@@ -1125,6 +1130,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             _tombstone_state_locks[n].lock();
             if (_graph_store->get_num_consolidates(n) >= 10) {
                 {
+                    std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
                     _graph_store->mark_live(n);
                     release_location(n);
                 }
