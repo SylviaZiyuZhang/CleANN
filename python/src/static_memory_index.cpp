@@ -42,7 +42,7 @@ StaticMemoryIndex<DT>::StaticMemoryIndex(const diskann::Metric m, const std::str
 
 template <typename DT>
 NeighborsAndDistances<StaticIdType> StaticMemoryIndex<DT>::search(
-    py::array_t<DT, py::array::c_style | py::array::forcecast> &query, const uint64_t knn, const uint64_t complexity)
+    py::array_t<DT, py::array::c_style | py::array::forcecast> &query, const uint64_t knn, const uint64_t complexity, const bool improvement_allowed)
 {
     py::array_t<StaticIdType> ids(knn);
     py::array_t<float> dists(knn);

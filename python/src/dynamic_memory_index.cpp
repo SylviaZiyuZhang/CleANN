@@ -161,12 +161,12 @@ template <class DT> void DynamicMemoryIndex<DT>::save_edge_analytics(const std::
 
 template <class DT>
 NeighborsAndDistances<DynamicIdType> DynamicMemoryIndex<DT>::search(
-    py::array_t<DT, py::array::c_style | py::array::forcecast> &query, const uint64_t knn, const uint64_t complexity)
+    py::array_t<DT, py::array::c_style | py::array::forcecast> &query, const uint64_t knn, const uint64_t complexity, const bool improvement_allowed)
 {
     py::array_t<DynamicIdType> ids(knn);
     py::array_t<float> dists(knn);
     std::vector<DT *> empty_vector;
-    _index.search_with_tags(query.data(), knn, complexity, ids.mutable_data(), dists.mutable_data(), empty_vector);
+    _index.search_with_tags(query.data(), knn, complexity, ids.mutable_data(), dists.mutable_data(), empty_vector, improvement_allowed);
     return std::make_pair(ids, dists);
 }
 
@@ -188,8 +188,9 @@ NeighborsAndDistances<DynamicIdType> DynamicMemoryIndex<DT>::batch_search(
     shared(num_queries, queries, knn, complexity, ids, dists, empty_vector)
     for (int64_t i = 0; i < (int64_t)num_queries; i++)
     {
+        // TODO (SylviaZiyuZhang): Implement improvement allowance control for batch_search in Python binding.
         _index.search_with_tags(queries.data(i), knn, complexity, ids.mutable_data(i), dists.mutable_data(i),
-                                empty_vector);
+                                empty_vector, false);
     }
 
     return std::make_pair(ids, dists);
