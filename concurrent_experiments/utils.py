@@ -115,21 +115,22 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
         plan_ids_list = []
         cur_plan = 0
         for plan_name, data, queries, update_list, optional_gt, plan_consolidate in plans:
-            start_plan_time = time.time()
+            print("Starting plan ", plan_name)
+            
             recall_count = 0
             search_count = 0
             test_search_count = 0
             actual_queries = []
             actual_update_list = []
             for i, it in enumerate(update_list):
-                if it[0] == 1 and it[1] < len(queries):
+                if it[0] == 1 or it[0] == 3 and it[1] < len(queries): # 1: test queries, 3: train queries
                     actual_queries.append(queries[it[1]])
                     actual_update_list.append((it[0], len(actual_queries) - 1))
                 else:
                     actual_update_list.append(it)
             
             consolidate = 1 if plan_consolidate else 0
-
+            start_plan_time = time.time()
             results = dynamic_test(
                 dynamic_index._index,
                 data,
@@ -141,14 +142,15 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 consolidate=consolidate,
                 plan_id=cur_plan,
             )
-  
+            plan_total_time = time.time() - start_plan_time
+
             mse_total = 0
             if optional_gt is not None:
                 for i, it in enumerate(update_list):
                     if it[0] == 1 and it[1] < len(queries): # A search query that does not allow improvements
                         largest_returned = 0
                         largest_true = 0
-                        if it[1] % 4 != 0:
+                        if True:
                             for k in range(query_k):
                                 if results[0][search_count][k] in optional_gt[i][:query_k]:
                                     recall_count += 1
@@ -161,7 +163,6 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                         search_count += 1
             recall = -1 if search_count == 0 else (recall_count / (test_search_count * query_k))
             mse = -1 if search_count == 0 else mse_total / search_count
-            plan_total_time = time.time() - start_plan_time
             all_times[plan_name].append(plan_total_time)
             all_recalls[plan_name].append(recall)
             # Ths following are for generating plots
