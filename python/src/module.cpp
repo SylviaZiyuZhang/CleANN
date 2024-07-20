@@ -133,9 +133,10 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
         if (update_type == 0) { // insert
             auto id = update_id + 1;
             index._index.insert_point(data.data(update_id), id);
-        } else if (update_type == 1) { // query
+        } else if (update_type == 1 || update_type == 3) { // query
+            // 1 means improve not allowed, 3 means improve allowed
             std::vector<float *> empty_vector;
-            bool improvement_allowed = update_id % 4 == 0;
+            bool improvement_allowed = update_id == 3;
             index._index.search_with_tags(queries.data(update_id), query_k, query_complexity,
                                           ids.mutable_data(update_id), dists.mutable_data(update_id), empty_vector, improvement_allowed);
             // Fix ids
