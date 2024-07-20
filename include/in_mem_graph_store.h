@@ -34,12 +34,23 @@ class InMemGraphStore : public AbstractGraphStore
 
     virtual size_t get_edge_count() override;
 
+    // dynamic consolidation
+    // TODO (SylviaZiyuZhang): support concurrency with compare and swap
+    virtual location_t get_incoming_delegate(const location_t i) override;
+    virtual location_t get_outgoing_delegate(const location_t i) override;
+    virtual size_t get_incoming_degree_count(const location_t i) override;
+    virtual size_t increment_incoming_degree_count(const location_t i) override;
+    virtual size_t decrement_incoming_degree_count(const location_t i) override;
+    virtual void set_incoming_delegate(const location_t i, location_t d) override;
+    virtual void set_outgoing_delegate(const location_t i, location_t d) override;
+
   protected:
     virtual std::tuple<uint32_t, uint32_t, size_t> load_impl(const std::string &filename, size_t expected_num_points);
 #ifdef EXEC_ENV_OLS
     virtual std::tuple<uint32_t, uint32_t, size_t> load_impl(AlignedFileReader &reader, size_t expected_num_points);
 #endif
 
+    // TODO (SylviaZiyuZhang): modify save_graph to support deleted node delegation
     int save_graph(const std::string &index_path_prefix, const size_t active_points, const size_t num_frozen_points,
                    const uint32_t start);
 
@@ -48,6 +59,8 @@ class InMemGraphStore : public AbstractGraphStore
     uint32_t _max_observed_degree = 0;
 
     std::vector<std::vector<uint32_t>> _graph;
+    std::vector<uint32_t> _incoming_degrees;
+    std::vector<uint32_t> _delegates;
 };
 
 } // namespace diskann

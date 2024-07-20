@@ -23,8 +23,14 @@ class CMakeExtension(Extension):
         self.defined_macros = [
             ("EDGE_ANALYTICS_ENABLED", "false"),
             ("PATH_COMPRESSION_ENABLED", "false"),
+            ("INSERT_FIXES_DELETES", "false"),
+            ("SEARCH_FIXES_DELETES", "false"),
+            ("FIXES_DELETES_LOWER_LAYER", "true"),
+            ("COMPLICATED_DYNAMIC_DELETE", "false"),
+            ("LAYER_BASED_PATH_COMPRESSION", "true"),
+            ("MEMORY_COLLECTION", "true"),
+            ("ITERATION_SKIPS_TOMBSTONES", "false"),
         ]
-
 
 class CMakeBuild(build_ext):
     def build_extension(self, ext: CMakeExtension) -> None:
@@ -34,7 +40,8 @@ class CMakeBuild(build_ext):
         # Using this requires trailing slash for auto-detection & inclusion of
         # auxiliary "native" libs
 
-        debug = int(os.environ.get("DEBUG", 0)) if self.debug is None else self.debug
+        # debug = int(os.environ.get("DEBUG", 0)) if self.debug is None else self.debug
+        debug = 1
         cfg = "Debug" if debug else "Release"
 
         # CMake lets you override the generator - we need to check this.
@@ -49,7 +56,27 @@ class CMakeBuild(build_ext):
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             f"-DCMAKE_BUILD_TYPE={cfg}",  # not used on MSVC, but no harm
             f"-DVERSION_INFO={self.distribution.get_version()}",  # commented out, we want this set in the CMake file
+            "-DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         ]
+
+        #mkl_root = os.environ.get("MKLROOT", "/opt/intel/oneapi/mkl/latest")
+        #mkl_include_dir = f"{mkl_root}/include"
+        #mkl_libraries = f"{mkl_root}/lib/intel64"
+
+        # Add include directories
+        #cmake_args += [
+        #    f"-DCMAKE_CXX_FLAGS=-I{mkl_include_dir}"
+        #]
+
+        # Pass MKL include and library paths explicitly to CMake
+        #cmake_args += [
+        #    f"-DMKL_INCLUDE_DIR={mkl_include_dir}",
+        #    f"-DMKL_LIBRARIES={mkl_libraries}",
+        #    f"-DCMAKE_SHARED_LINKER_FLAGS=-L{mkl_libraries} -lmkl_intel_ilp64 -lmkl_intel_thread -lmkl_core -lmkl_def -liomp5 -lpthread -lm -ldl"
+        #]
+        cmake_args += ["-DCMAKE_VERBOSE_MAKEFILE=ON"]
+
+        
         build_args = []
         # Adding CMake arguments set as environment variable
         # (needed e.g. to build for ARM OSx on conda-forge)

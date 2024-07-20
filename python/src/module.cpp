@@ -90,7 +90,8 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
         .def("insert", &diskannpy::DynamicMemoryIndex<T>::insert, "vector"_a, "id"_a)
         .def("mark_deleted", &diskannpy::DynamicMemoryIndex<T>::mark_deleted, "id"_a)
         .def("consolidate_delete", &diskannpy::DynamicMemoryIndex<T>::consolidate_delete)
-        .def("num_points", &diskannpy::DynamicMemoryIndex<T>::num_points);
+        .def("num_points", &diskannpy::DynamicMemoryIndex<T>::num_points)
+        .def("print_status", &diskannpy::DynamicMemoryIndex<T>::print_status);
 
     py::class_<diskannpy::StaticDiskIndex<T>>(m, variant.static_disk_index_name.c_str())
         .def(py::init<const diskann::Metric, const std::string &, const uint32_t, const size_t, const uint32_t>(),
@@ -120,6 +121,7 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
     py::array_t<float> dists({num_queries, query_k});
 
     size_t update_count = 0;
+    index._index.print_status();
 #pragma omp parallel for schedule(dynamic, 1)
     for (size_t for_openmp = 0; for_openmp < update_list.size(); for_openmp++)
     {

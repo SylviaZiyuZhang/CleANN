@@ -165,6 +165,12 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // if tag not found.
     DISKANN_DLLEXPORT void lazy_delete(const std::vector<TagT> &tags, std::vector<TagT> &failed_tags);
 
+    // delete and delegate
+    DISKANN_DLLEXPORT int dynamic_delete(const TagT &tag);
+    DISKANN_DLLEXPORT void dynamic_delete(const std::vector<TagT> &tags, std::vector<TagT> &failed_tags);
+    // consolidate dynamic deletes is only called when there is no space left.
+    DISKANN_DLLEXPORT consolidation_report consolidate_dynamic_deletes(const IndexWriteParameters &parameters);
+
     // Call after a series of lazy deletions
     // Returns number of live points left after consolidation
     // If _conc_consolidates is set in the ctor, then this call can be invoked
@@ -317,6 +323,11 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // Also acquires _locks[i] for i = loc and out-neighbors of loc.
     void process_delete(const tsl::robin_set<uint32_t> &old_delete_set, size_t loc, const uint32_t range,
                         const uint32_t maxc, const float alpha, InMemQueryScratch<T> *scratch);
+
+    /*
+        Another signature for process_delete for consolidation on the fly. Thread-safe.
+    */
+    void process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha, std::unique_lock<std::shared_timed_mutex> &delete_lock);
 
     void initialize_query_scratch(uint32_t num_threads, uint32_t search_l, uint32_t indexing_l, uint32_t r,
                                   uint32_t maxc, size_t dim);
