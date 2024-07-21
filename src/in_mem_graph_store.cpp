@@ -61,7 +61,7 @@ void InMemGraphStore::set_neighbours(const location_t i, std::vector<location_t>
 };
 
 bool InMemGraphStore::is_tombstoned(const location_t i) {
-    return _consolidate_hits.at(i) < 0;
+    return _consolidate_hits.at(i) >= 0;
 }
 
 int InMemGraphStore::get_num_consolidates(const location_t i) {

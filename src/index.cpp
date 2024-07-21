@@ -1024,8 +1024,8 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     #if LAYER_BASED_PATH_COMPRESSION
     float max_dist = 0.0;
     float min_dist = std::numeric_limits<float>::max();
-    std::unordered_map<uint32_t, uint32_t> pred_map;
-    std::unordered_map<uint32_t, std::vector<diskann::Neighbor>> succ_map;
+    // pred_map is not useful unless we use LCA to determine which pairs to connect
+    // std::unordered_map<uint32_t, uint32_t> pred_map;
     std::vector<uint32_t> compression_starts;
     std::vector<uint32_t> compression_ends;
     #endif
@@ -1038,38 +1038,9 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         auto n = nbr.id;
         auto n_dist = nbr.distance;
         #if LAYER_BASED_PATH_COMPRESSION
-        pred_map[n] = pred_id;
-        if (succ_map.find(pred_id) != succ_map.end()) {
-            succ_map[pred_id].push_back(nbr_info.first);
-        } else {
-            succ_map[pred_id] = std::vector<diskann::Neighbor>({nbr_info.first});
-        }
-        auto dist_diff = abs(n_dist - nbr_info.second.distance);
-        if (max_dist < dist_diff)
-            max_dist = dist_diff;
-        if (min_dist > dist_diff)
-            min_dist = dist_diff;
+         // pred_map is not useful unless we use LCA to determine which pairs to connect
+        // pred_map[n] = pred_id;
         depth_record[n] = depth_record[pred_id] + 1;
-        #endif
-
-        #if EDGE_ANALYTICS_ENABLED
-        size_t pred_depth = depth_record[pred_id];
-        depth_record[n] = pred_depth + 1;
-        if (search_invocation) {
-            if (_edge_analytics.find(pred_id) == _edge_analytics.end()) {
-                _edge_analytics[pred_id] = std::unordered_map<TagT, EdgeAnalyticsInfo>();
-            }
-            if (_edge_analytics[pred_id].find(n) == _edge_analytics[pred_id].end()) {
-                _edge_analytics[pred_id][n] = EdgeAnalyticsInfo {float(pred_depth + 1), 1};
-            } else {
-                float depth = _edge_analytics[pred_id][n].avg_traversal_depth;
-                size_t n_use = _edge_analytics[pred_id][n].num_used;
-                _edge_analytics[pred_id][n] = EdgeAnalyticsInfo {
-                    (depth * n_use + float(pred_depth + 1))/(n_use + 1),
-                    n_use + 1
-                };
-            }
-        }
         #endif
 
         // Add node to expanded nodes to create pool for prune later
@@ -1129,10 +1100,10 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             if (is_not_visited(id)) {
                 #if ITERATION_SKIPS_TOMBSTONES
                 _tombstone_state_locks[id].lock();
-                if (!_graph_store->is_tombstoned(id)) {
+                if ((!_graph_store->is_tombstoned(id)) || improvement_allowed) {
                     id_scratch.push_back(id);
                 }
-                _tombstone_state_locks[id].unlock()
+                _tombstone_state_locks[id].unlock();
                 #else
                 id_scratch.push_back(id);
                 #endif
