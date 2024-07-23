@@ -36,6 +36,8 @@
 #define LAYER_BASED_PATH_COMPRESSION true
 #define MEMORY_COLLECTION true
 #define ITERATION_SKIPS_TOMBSTONES false
+#define INSERT_NARROW_BEAM false
+const size_t INSERT_BEAM_WIDTH = 16;
 
 namespace diskann
 {
@@ -1038,7 +1040,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         auto n = nbr.id;
         auto n_dist = nbr.distance;
         #if LAYER_BASED_PATH_COMPRESSION
-         // pred_map is not useful unless we use LCA to determine which pairs to connect
+        // pred_map is not useful unless we use LCA to determine which pairs to connect
         // pred_map[n] = pred_id;
         depth_record[n] = depth_record[pred_id] + 1;
         #endif
@@ -1236,6 +1238,13 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         add_compression_edges(compression_starts, compression_ends, scratch);
     }
     #endif
+    if (search_invocation) {
+        _avg_search_cmps = (_avg_search_cmps * _n_searches + cmps) / (_n_searches + 1);
+        _n_searches ++;
+    } else {
+        _avg_insert_cmps = (_avg_insert_cmps * _n_inserts + cmps) / (_n_inserts + 1);
+        _n_inserts ++;
+    }
     return std::make_pair(hops, cmps);
 }
 
@@ -1329,8 +1338,15 @@ void Index<T, TagT, LabelT>::add_compression_edges(std::vector<uint32_t> &starts
     // add reverse links from all the visited nodes to node n.
     
     assert(starts.size() == ends.size());
-    for (size_t i = 0; i < starts.size(); i++)
-    {
+    size_t i = 0;
+    while (i < starts.size())
+    { // This implementation assumes that same start points are grouped consecutively in starts
+        size_t j = i;
+        while (j < starts.size()) {
+            if (starts[j] != starts[i])
+                break;
+            j++;
+        }
         auto src = starts[i];
         // des.loc is the loc of the neighbors of des
         assert(src < _max_points + _num_frozen_pts);
@@ -1340,20 +1356,23 @@ void Index<T, TagT, LabelT>::add_compression_edges(std::vector<uint32_t> &starts
         {
             LockGuard guard(_locks[src]);
             auto &src_nb_pool = _graph_store->get_neighbours(src);
-            if (std::find(src_nb_pool.begin(), src_nb_pool.end(), ends[i]) == src_nb_pool.end())
-            {
-                if (src_nb_pool.size() < (uint64_t)(defaults::GRAPH_SLACK_FACTOR * range))
+            for (size_t k = i; k < j; k++) {
+                if (std::find(src_nb_pool.begin(), src_nb_pool.end(), ends[k]) == src_nb_pool.end())
                 {
-                    // des_pool.emplace_back(n);
-                    _graph_store->add_neighbour(src, ends[i]);
-                    prune_needed = false;
-                }
-                else
-                {
-                    copy_of_neighbors.reserve(src_nb_pool.size() + 1);
-                    copy_of_neighbors = src_nb_pool;
-                    copy_of_neighbors.push_back(ends[i]);
-                    prune_needed = true;
+                    if (src_nb_pool.size() < (uint64_t)(defaults::GRAPH_SLACK_FACTOR * range))
+                    {
+                        // des_pool.emplace_back(n);
+                        _graph_store->add_neighbour(src, ends[k]);
+                        prune_needed = false;
+                    } else if (copy_of_neighbors.size() > 0) {
+                        copy_of_neighbors.push_back(ends[k]);
+                    } else
+                    {
+                        copy_of_neighbors.reserve(src_nb_pool.size() + 1);
+                        copy_of_neighbors = src_nb_pool;
+                        copy_of_neighbors.push_back(ends[k]);
+                        prune_needed = true;
+                    }
                 }
             }
         } // src lock is released by this point
@@ -1384,6 +1403,7 @@ void Index<T, TagT, LabelT>::add_compression_edges(std::vector<uint32_t> &starts
                 _graph_store->set_neighbours(src, new_out_neighbors);
             }
         }
+        i = j;
     }
 }
 
@@ -2005,7 +2025,7 @@ void Index<T, TagT, LabelT>::build_with_data_populated(const std::vector<TagT> &
 
     if (_query_scratch.size() == 0)
     {
-        initialize_query_scratch(5 + num_threads_index, index_L, index_L, index_R, maxc,
+        initialize_query_scratch(2 * num_threads_index, index_L, index_L, index_R, maxc,
                                  _data_store->get_aligned_dim());
     }
 
@@ -2453,10 +2473,11 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::search(const T *query, con
 
     if (L > scratch->get_L())
     {
-        diskann::cout << "Attempting to expand query scratch_space. Was created "
-                      << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
+        // TODO (SylviaZiyuZhang): revert this
+        // diskann::cout << "Attempting to expand query scratch_space. Was created "
+        //               << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
         scratch->resize_for_new_L(L);
-        diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
+        // diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
     }
 
     const std::vector<LabelT> unused_filter_label;
@@ -2541,10 +2562,10 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::search_with_filters(const 
 
     if (L > scratch->get_L())
     {
-        diskann::cout << "Attempting to expand query scratch_space. Was created "
-                      << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
+        // diskann::cout << "Attempting to expand query scratch_space. Was created "
+        //               << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
         scratch->resize_for_new_L(L);
-        diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
+        // diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
     }
 
     std::vector<LabelT> filter_vec;
@@ -2654,10 +2675,10 @@ size_t Index<T, TagT, LabelT>::search_with_tags(const T *query, const uint64_t K
 
     if (L > scratch->get_L())
     {
-        diskann::cout << "Attempting to expand query scratch_space. Was created "
-                      << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
+        // diskann::cout << "Attempting to expand query scratch_space. Was created "
+        //               << "with Lsize: " << scratch->get_L() << " but search L is: " << L << std::endl;
         scratch->resize_for_new_L(L);
-        diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
+        // diskann::cout << "Resize completed. New scratch->L is " << scratch->get_L() << std::endl;
     }
 
     std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
@@ -3532,6 +3553,9 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     // Find and add appropriate graph edges
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     auto scratch = manager.scratch_space();
+    #if INSERT_NARROW_BEAM
+    scratch->resize_for_new_L(INSERT_BEAM_WIDTH);
+    #endif
     std::vector<uint32_t> pruned_list; // it is the set best candidates to connect to this point
     if (_filtered_index)
     {
@@ -3698,11 +3722,13 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     diskann::cout << "Number of points: " << _nd << std::endl;
     auto n_points = _graph_store->get_total_points();
     diskann::cout << "Graph size: " << n_points << std::endl;
-    diskann::cout << "Average degree" << _graph_store->get_edge_count() / n_points << std::endl;
+    diskann::cout << "Average degree: " << _graph_store->get_edge_count() / n_points << std::endl;
     diskann::cout << "Location to tag size: " << _location_to_tag.size() << std::endl;
     diskann::cout << "Tag to location size: " << _tag_to_location.size() << std::endl;
     diskann::cout << "Number of empty slots: " << _empty_slots.size() << std::endl;
     diskann::cout << std::boolalpha << "Data compacted: " << this->_data_compacted << std::endl;
+    diskann::cout << "Average insert comparisons: " << _avg_insert_cmps << std::endl;
+    diskann::cout << "Average search comparisons: " << _avg_search_cmps << std::endl;
     diskann::cout << "---------------------------------------------------------"
                      "------------"
                   << std::endl;

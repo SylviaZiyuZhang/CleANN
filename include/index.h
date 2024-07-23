@@ -387,6 +387,11 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     bool _normalize_vecs = false; // Using normalied L2 for cosine.
     bool _deletes_enabled = false;
 
+    float _avg_insert_cmps = 0;
+    float _avg_search_cmps = 0;
+    size_t _n_inserts = 0;
+    size_t _n_searches = 0;
+
     // Filter Support
 
     bool _filtered_index = false;
