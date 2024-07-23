@@ -10,13 +10,20 @@ BOOST_AUTO_TEST_SUITE(IndexWriteParametersBuilder_tests)
 BOOST_AUTO_TEST_CASE(test_build)
 {
     uint32_t search_list_size = rand();
+    uint32_t insert_list_size = rand();
     uint32_t max_degree = rand();
+    uint32_t bridge_start_lb = rand();
+    uint32_t bridge_start_hb = rand();
+    uint32_t bridge_end_lb = rand();
+    uint32_t bridge_end_hb = rand();
+    uint32_t bridge_prob = (float)rand();
     float alpha = (float)rand();
     uint32_t filter_list_size = rand();
     uint32_t max_occlusion_size = rand();
     bool saturate_graph = true;
 
-    diskann::IndexWriteParametersBuilder builder(search_list_size, max_degree);
+    diskann::IndexWriteParametersBuilder builder(search_list_size, insert_list_size, max_degree,
+        bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob);
 
     builder.with_alpha(alpha)
         .with_filter_list_size(filter_list_size)
@@ -28,6 +35,12 @@ BOOST_AUTO_TEST_CASE(test_build)
         auto parameters = builder.build();
 
         BOOST_TEST(search_list_size == parameters.search_list_size);
+        BOOST_TEST(insert_list_size == parameters.insert_list_size);
+        BOOST_TEST(bridge_start_lb == parameters.bridge_start_lb);
+        BOOST_TEST(bridge_start_hb == parameters.bridge_start_hb);
+        BOOST_TEST(bridge_end_lb == parameters.bridge_end_lb);
+        BOOST_TEST(bridge_end_hb == parameters.bridge_end_hb);
+        BOOST_TEST(bridge_prob == parameters.bridge_prob);
         BOOST_TEST(max_degree == parameters.max_degree);
         BOOST_TEST(alpha == parameters.alpha);
         BOOST_TEST(filter_list_size == parameters.filter_list_size);
@@ -45,6 +58,12 @@ BOOST_AUTO_TEST_CASE(test_build)
         auto parameters = builder.build();
 
         BOOST_TEST(search_list_size == parameters.search_list_size);
+        BOOST_TEST(insert_list_size == parameters.insert_list_size);
+        BOOST_TEST(bridge_start_lb == parameters.bridge_start_lb);
+        BOOST_TEST(bridge_start_hb == parameters.bridge_start_hb);
+        BOOST_TEST(bridge_end_lb == parameters.bridge_end_lb);
+        BOOST_TEST(bridge_end_hb == parameters.bridge_end_hb);
+        BOOST_TEST(bridge_prob == parameters.bridge_prob);
         BOOST_TEST(max_degree == parameters.max_degree);
         BOOST_TEST(alpha == parameters.alpha);
         BOOST_TEST(filter_list_size == parameters.filter_list_size);

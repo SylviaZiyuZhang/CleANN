@@ -17,6 +17,12 @@ class IndexWriteParameters
 {
   public:
     const uint32_t search_list_size; // L
+    const uint32_t insert_list_size; // insert L
+    const uint32_t bridge_start_lb;
+    const uint32_t bridge_start_hb;
+    const uint32_t bridge_end_lb;
+    const uint32_t bridge_end_hb;
+    const float bridge_prob;
     const uint32_t max_degree;       // R
     const bool saturate_graph;
     const uint32_t max_occlusion_size; // C
@@ -25,11 +31,14 @@ class IndexWriteParameters
     const uint32_t filter_list_size; // Lf
 
   private:
-    IndexWriteParameters(const uint32_t search_list_size, const uint32_t max_degree, const bool saturate_graph,
-                         const uint32_t max_occlusion_size, const float alpha, const uint32_t num_threads,
+    IndexWriteParameters(const uint32_t search_list_size, const uint32_t insert_list_size, const uint32_t max_degree,
+                         const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob,
+                         const bool saturate_graph, const uint32_t max_occlusion_size, const float alpha,
+                         const uint32_t num_threads,
                          const uint32_t filter_list_size)
-        : search_list_size(search_list_size), max_degree(max_degree), saturate_graph(saturate_graph),
-          max_occlusion_size(max_occlusion_size), alpha(alpha), num_threads(num_threads),
+        : search_list_size(search_list_size), insert_list_size(insert_list_size), max_degree(max_degree),
+          bridge_start_lb(bridge_start_lb), bridge_start_hb(bridge_start_hb), bridge_end_lb(bridge_end_lb), bridge_end_hb(bridge_end_hb), bridge_prob(bridge_prob),
+          saturate_graph(saturate_graph), max_occlusion_size(max_occlusion_size), alpha(alpha), num_threads(num_threads),
           filter_list_size(filter_list_size)
     {
     }
@@ -56,9 +65,15 @@ class IndexWriteParametersBuilder
      */
   public:
     IndexWriteParametersBuilder(const uint32_t search_list_size, // L
-                                const uint32_t max_degree        // R
-                                )
-        : _search_list_size(search_list_size), _max_degree(max_degree)
+                                const uint32_t insert_list_size, // insert L
+                                const uint32_t max_degree,        // R
+                                const uint32_t bridge_start_lb,
+                                const uint32_t bridge_start_hb,
+                                const uint32_t bridge_end_lb,
+                                const uint32_t bridge_end_hb,
+                                const float bridge_prob)
+        : _search_list_size(search_list_size), _insert_list_size(insert_list_size), _max_degree(max_degree),
+          _bridge_start_lb(bridge_start_lb), _bridge_start_hb(bridge_start_hb), _bridge_end_lb(bridge_end_lb), _bridge_end_hb(bridge_end_hb), _bridge_prob(bridge_prob)
     {
     }
 
@@ -94,12 +109,15 @@ class IndexWriteParametersBuilder
 
     IndexWriteParameters build() const
     {
-        return IndexWriteParameters(_search_list_size, _max_degree, _saturate_graph, _max_occlusion_size, _alpha,
+        return IndexWriteParameters(_search_list_size, _insert_list_size, _max_degree,
+                                    _bridge_start_lb, _bridge_start_hb, _bridge_end_lb, _bridge_end_hb, _bridge_prob,
+                                    _saturate_graph, _max_occlusion_size, _alpha,
                                     _num_threads, _filter_list_size);
     }
 
     IndexWriteParametersBuilder(const IndexWriteParameters &wp)
-        : _search_list_size(wp.search_list_size), _max_degree(wp.max_degree),
+        : _search_list_size(wp.search_list_size), _insert_list_size(wp.insert_list_size), _max_degree(wp.max_degree),
+          _bridge_start_lb(wp.bridge_start_lb), _bridge_start_hb(wp.bridge_start_hb), _bridge_end_lb(wp.bridge_end_lb), _bridge_end_hb(wp.bridge_end_hb), _bridge_prob(wp.bridge_prob),
           _max_occlusion_size(wp.max_occlusion_size), _saturate_graph(wp.saturate_graph), _alpha(wp.alpha),
           _filter_list_size(wp.filter_list_size)
     {
@@ -109,6 +127,12 @@ class IndexWriteParametersBuilder
 
   private:
     uint32_t _search_list_size{};
+    uint32_t _insert_list_size{};
+    uint32_t _bridge_start_lb{};
+    uint32_t _bridge_start_hb{};
+    uint32_t _bridge_end_lb{};
+    uint32_t _bridge_end_hb{};
+    float _bridge_prob{};
     uint32_t _max_degree{};
     uint32_t _max_occlusion_size{defaults::MAX_OCCLUSION_SIZE};
     bool _saturate_graph{defaults::SATURATE_GRAPH};

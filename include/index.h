@@ -410,10 +410,16 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
 
     // Indexing parameters
     uint32_t _indexingQueueSize;
+    uint32_t _insertQueueSize;
     uint32_t _indexingRange;
     uint32_t _indexingMaxC;
     float _indexingAlpha;
     uint32_t _indexingThreads;
+    uint32_t _bridgeStartLb;
+    uint32_t _bridgeStartHb;
+    uint32_t _bridgeEndLb;
+    uint32_t _bridgeEndHb;
+    float _bridgeProb;
 
     // Query scratch data structures
     ConcurrentQueue<InMemQueryScratch<T> *> _query_scratch;

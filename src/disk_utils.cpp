@@ -628,8 +628,8 @@ int build_merged_vamana_index(std::string base_file, diskann::Metric compareMetr
     {
         diskann::cout << "Full index fits in RAM budget, should consume at most "
                       << full_index_ram / (1024 * 1024 * 1024) << "GiBs, so building in one shot" << std::endl;
-
-        diskann::IndexWriteParameters paras = diskann::IndexWriteParametersBuilder(L, R)
+        // TODO (SylviaZiyuZhang): Fix bridge algorithm usage for disk version
+        diskann::IndexWriteParameters paras = diskann::IndexWriteParametersBuilder(L, L, R, 1, 2, 3, 4, 0.0)
                                                   .with_filter_list_size(Lf)
                                                   .with_saturate_graph(!use_filters)
                                                   .with_num_threads(num_threads)
@@ -693,7 +693,8 @@ int build_merged_vamana_index(std::string base_file, diskann::Metric compareMetr
 
         std::string shard_index_file = merged_index_prefix + "_subshard-" + std::to_string(p) + "_mem.index";
 
-        diskann::IndexWriteParameters low_degree_params = diskann::IndexWriteParametersBuilder(L, 2 * R / 3)
+        // TODO (SylviaZiyuZhang): Fix bridge algorithm for disk version
+        diskann::IndexWriteParameters low_degree_params = diskann::IndexWriteParametersBuilder(L, L, 2 * R / 3, 1, 2, 3, 4, 0.0)
                                                               .with_filter_list_size(Lf)
                                                               .with_saturate_graph(false)
                                                               .with_num_threads(num_threads)

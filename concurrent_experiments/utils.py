@@ -27,9 +27,15 @@ def test_static_index(
     distance_metric="l2",
     graph_degree=64,
     build_complexity=64,
+    insert_complexity=64,
     query_complexity=64,
     query_k=10,
     alpha=1.2,
+    bridge_start_lb=3,
+    bridge_start_hb=5,
+    bridge_end_lb=9,
+    bridge_end_hb=64,
+    bridge_prob=0.5,
 ):
     prefix = f"{dataset_short_name}-{alpha}-{build_complexity}-{graph_degree}"
 
@@ -38,10 +44,16 @@ def test_static_index(
             data,
             alpha=alpha,
             complexity=build_complexity,
+            insert_complexity=64,
             graph_degree=graph_degree,
             distance_metric=distance_metric,
             index_directory=index_directory,
             num_threads=0,
+            bridge_start_lb=3,
+            bridge_start_hb=5,
+            bridge_end_lb=9,
+            bridge_end_hb=64,
+            bridge_prob=0.5,
             use_pq_build=False,
             use_opq=False,
             index_prefix=prefix,
@@ -82,176 +94,149 @@ def parse_ann_benchmarks_hdf5(data_path):
 def run_dynamic_test(plans, neighbors, dists, max_vectors,
     experiment_name="trial", threads=[8], distance_metric="l2",
     batch_build=False, batch_build_data=None, batch_build_tags=None,
-    build_complexity=64, graph_degree=64, query_complexity=64, query_k=10,
+    build_complexity=64, insert_complexity=64, graph_degree=64, query_complexity=64, query_k=10,
+    bridge_start_lb=3, bridge_start_hb=5, bridge_end_lb=9, bridge_end_hb=64, bridge_prob=0.5,
 ):
-    time_keys = [plan[0] for plan in plans] + ["Total"]
-    all_times = {time_key: [] for time_key in time_keys}
-    recall_keys = [plan[0] for plan in plans] + ["Recall"]
-    all_recalls = {recall_key: [] for recall_key in recall_keys}
-    build_time = 0
 
-    for num_threads in threads:
-        start_overall_time = time.time()
+    settings = [ # name, build complexity, insert complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob
+        ('C', 64, 32, 128, 3, 6, 9, 64, 0.3),
+        ('D', 64, 64, 64, 3, 6, 9, 64, 0.3),
+        ('E', 64, 64, 64, 3, 6, 9, 64, 0.5),
+        ('F', 64, 32, 64, 3, 6, 9, 12, 0.7),
+        ('G', 64, 32, 32, 3, 6, 9, 12, 0.7),
+        ('H', 64, 32, 32, 9, 12, 9, 12, 0.3)
+    ]
+    for setting in settings:
+        setting_name, build_complexity, insert_complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob = setting
+        time_keys = [plan[0] for plan in plans] + ["Total"]
+        all_times = {time_key: [] for time_key in time_keys}
+        recall_keys = [plan[0] for plan in plans] + ["Recall"]
+        all_recalls = {recall_key: [] for recall_key in recall_keys}
+        build_time = 0
 
-        dynamic_index = diskannpy.DynamicMemoryIndex(
-            distance_metric=distance_metric,
-            vector_dtype=np.float32,
-            dimensions=plans[0][1].shape[1],
-            max_vectors=max_vectors,
-            complexity=build_complexity,
-            graph_degree=graph_degree,
-        )
-        if batch_build:
-            start_build_time = time.time()
-            assert(len(batch_build_data) == len(batch_build_tags))
-            dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
-            build_time = time.time() - start_build_time
+        for num_threads in threads:
+            start_overall_time = time.time()
+            dynamic_index = diskannpy.DynamicMemoryIndex(
+                distance_metric=distance_metric,
+                vector_dtype=np.float32,
+                dimensions=plans[0][1].shape[1],
+                max_vectors=max_vectors,
+                complexity=build_complexity,
+                insert_complexity=insert_complexity,
+                graph_degree=graph_degree,
+                bridge_start_lb=bridge_start_lb,
+                bridge_start_hb=bridge_start_hb,
+                bridge_end_lb=bridge_end_lb,
+                bridge_end_hb=bridge_end_hb,
+                bridge_prob=bridge_prob,
+            )
+            if batch_build:
+                start_build_time = time.time()
+                assert(len(batch_build_data) == len(batch_build_tags))
+                dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
+                build_time = time.time() - start_build_time
 
-        all_recalls_list = []
-        all_mses_list = []
-        all_latencies_list = []
-        all_num_updates_list = []
-        plan_names_list = []
-        plan_ids_list = []
-        cur_plan = 0
-        p99_list = []
-        p50_list = []
-        p90_list = []
-        for plan_name, data, queries, update_list, optional_gt, plan_consolidate in plans:
-            print("Starting plan ", plan_name)
-            
-            recall_count = 0
-            search_count = 0
-            test_search_count = 0
-            actual_queries = []
-            actual_update_list = []
-            for i, it in enumerate(update_list):
+            all_recalls_list = []
+            all_mses_list = []
+            all_latencies_list = []
+            all_num_updates_list = []
+            plan_names_list = []
+            plan_ids_list = []
+            cur_plan = 0
+            p99_list = []
+            p50_list = []
+            p90_list = []
+            for plan_name, data, queries, update_list, optional_gt, plan_consolidate in plans:
+                print("Starting plan ", plan_name)
+                
+                recall_count = 0
+                search_count = 0
+                test_search_count = 0
+                actual_queries = []
+                actual_update_list = []
                 if it[0] == 1 or it[0] == 3 and it[1] < len(queries): # 1: test queries, 3: train queries
                     actual_queries.append(queries[it[1]])
                     actual_update_list.append((it[0], len(actual_queries) - 1))
                 else:
                     actual_update_list.append(it)
-            
-            consolidate = 1 if plan_consolidate else 0
-            start_plan_time = time.time()
-            results = dynamic_test(
-                dynamic_index._index,
-                data,
-                actual_queries,
-                actual_update_list,
-                query_k=query_k,
-                query_complexity=query_complexity,
-                num_threads=num_threads,
-                consolidate=consolidate,
-                plan_id=cur_plan,
-            )
-            plan_total_time = time.time() - start_plan_time
 
-            mse_total = 0
-            if optional_gt is not None:
-                for i, it in enumerate(update_list):
-                    if it[0] == 1 and it[1] < len(queries): # A search query that does not allow improvements
-                        largest_returned = 0
-                        largest_true = 0
-                        if True:
-                            for k in range(query_k):
-                                if results[0][search_count][k] in optional_gt[i][:query_k]:
-                                    recall_count += 1
-                                if largest_returned < results[1][search_count][k]:
-                                    largest_returned = results[1][search_count][k]
-                                if largest_true < optional_gt[i][k]:
-                                    largest_true = optional_gt[i][k]
-                            mse_total += np.square(largest_returned - largest_true)
-                            test_search_count += 1
-                        search_count += 1
-            recall = -1 if search_count == 0 else (recall_count / (test_search_count * query_k))
-            mse = -1 if search_count == 0 else mse_total / search_count
-            all_times[plan_name].append(plan_total_time)
-            all_recalls[plan_name].append(recall)
-            # Ths following are for generating plots
-            all_recalls_list.append(recall)
-            all_mses_list.append(mse)
-            num_updates = len(update_list) if len(update_list) > 0 else 1
-            all_num_updates_list.append(num_updates)
-            all_latencies_list.append(plan_total_time / num_updates)
-            plan_ids_list.append(cur_plan)
-            plan_names_list.append(plan_name)
-            p99_list.append(np.percentile(results[2], 99))
-            p50_list.append(np.percentile(results[2], 50))
-            p90_list.append(np.percentile(results[2], 90))
-            cur_plan += 1
+                consolidate = 1 if plan_consolidate else 0
+                start_plan_time = time.time()
+                results = dynamic_test(
+                    dynamic_index._index,
+                    data,
+                    actual_queries,
+                    actual_update_list,
+                    query_k=query_k,
+                    query_complexity=query_complexity,
+                    num_threads=num_threads,
+                    consolidate=consolidate,
+                    plan_id=cur_plan,
+                )
+                plan_total_time = time.time() - start_plan_time
+                mse_total = 0
+                if optional_gt is not None:
+                    for i, it in enumerate(update_list):
+                        if it[0] == 1 and it[1] < len(queries): # A search query that does not allow improvements
+                            largest_returned = 0
+                            largest_true = 0
+                            if True:
+                                for k in range(query_k):
+                                    if results[0][search_count][k] in optional_gt[i][:query_k]:
+                                        recall_count += 1
+                                    if largest_returned < results[1][search_count][k]:
+                                        largest_returned = results[1][search_count][k]
+                                    if largest_true < optional_gt[i][k]:
+                                        largest_true = optional_gt[i][k]
+                                mse_total += np.square(largest_returned - largest_true)
+                                test_search_count += 1
+                            search_count += 1
+                recall = -1 if search_count == 0 else (recall_count / (test_search_count * query_k))
+                mse = -1 if search_count == 0 else mse_total / search_count
+                all_times[plan_name].append(plan_total_time)
+                all_recalls[plan_name].append(recall)
+                # Ths following are for generating plots
+                all_recalls_list.append(recall)
+                all_mses_list.append(mse)
+                num_updates = len(update_list) if len(update_list) > 0 else 1
+                all_num_updates_list.append(num_updates)
+                all_latencies_list.append(plan_total_time / num_updates)
+                plan_ids_list.append(cur_plan)
+                plan_names_list.append(plan_name)
+                p99_list.append(np.percentile(results[2], 99))
+                p50_list.append(np.percentile(results[2], 50))
+                p90_list.append(np.percentile(results[2], 90))
+                cur_plan += 1
 
-        all_times["Total"].append(time.time() - start_overall_time)
 
-        new_times = [all_times[time_key][-1] for time_key in time_keys]
-        firsts_times = [all_times[time_key][0] for time_key in time_keys]
-        speedups = [f / n for n, f in zip(new_times, firsts_times)]
+            all_times["Total"].append(time.time() - start_overall_time)
 
-        result = {
-            "num_threads": num_threads,
-            "build_time": build_time,
-            "plan_names": plan_names_list,
-            "recalls": all_recalls_list,
-            "mses": all_mses_list,
-            "latencies": all_latencies_list,
-            "p99_latencies": p99_list,
-            "p50_latencies": p50_list,
-            "p90_latencies": p90_list,
-            "num_updates": all_num_updates_list,
-            "new_times": new_times,
-            "speedups": speedups,
-        }
-        with open(experiment_name+'_result_data.json', 'w') as f:
-            json.dump(result, f)
+            new_times = [all_times[time_key][-1] for time_key in time_keys]
+            firsts_times = [all_times[time_key][0] for time_key in time_keys]
+            speedups = [f / n for n, f in zip(new_times, firsts_times)]
 
-        start_plotting_index = -1
-        # Amputate the recalls
-        for i, it in enumerate(all_recalls_list):
-            if start_plotting_index == -1 and it != -1: # Only start plotting when recall values are meaningful
-                start_plotting_index = i
-            if it == -1 and i > 0 and all_recalls_list[i-1] != -1:
-                all_recalls_list[i] = all_recalls_list[i-1] # amputate invalid value with the previous value
-        
-        for i, it in enumerate(all_latencies_list):
-            if plan_names_list[i] == "Update":
-                all_latencies_list[i] = all_latencies_list[i+1]
-        recalls_to_plot = all_recalls_list[start_plotting_index:]
-        latencies_to_plot = all_latencies_list[start_plotting_index:]
-        plan_ids_to_plot = plan_ids_list[start_plotting_index:]
-        """
-        if num_threads == 8:
-            #plt.plot(plan_ids_to_plot, recalls_to_plot, label='Recall 10@10')
-
-            fig, ax1 = plt.subplots()
-            color = 'tab:red'
-            ax1.set_xlabel('batch')
-            ax1.set_ylabel('Recall 10@10', color=color)
-            line1, = ax1.plot(plan_ids_to_plot, recalls_to_plot, color=color, label='Recall 10@10')
-            ax1.tick_params(axis='y', labelcolor=color)
-
-            ax2 = ax1.twinx()
-            color = 'tab:blue'
-            ax2.set_ylabel('Throughput', color=color)
-            line2, = ax2.plot(plan_ids_to_plot, latencies_to_plot, color=color, label='Latency')
-            ax2.tick_params(axis='y', labelcolor=color)
-
-            # Combine the legend handles and labels from both axes
-            lines = [line1, line2]
-            labels = [line.get_label() for line in lines]
-
-            # Display legend on the first axis
-            ax1.legend(lines, labels, loc='upper left')
-
-            fig.tight_layout()
-            plt.title('Recall and Latency Plot on Consolidation')
-            plt.savefig(experiment_name + 'recall_latency_plot.png')
-            plt.show()
-            
-            #plt.plot(plan_ids_to_plot, latencies_to_plot, label='latency per query')
-            #plt.xlabel('Batch')
-            #plt.title('Recall and latency plot on consolidation')
-            #plt.legend()
-            #plt.savefig(experiment_name+'recall_latency_plot.png')
-            
-        # plt.show()
-        """
+            result = {
+                "num_threads": num_threads,
+                "build_time": build_time,
+                "plan_names": plan_names_list,
+                "recalls": all_recalls_list,
+                "mses": all_mses_list,
+                "latencies": all_latencies_list,
+                "p99_latencies": p99_list,
+                "p50_latencies": p50_list,
+                "p90_latencies": p90_list,
+                "num_updates": all_num_updates_list,
+                "new_times": new_times,
+                "speedups": speedups,
+                "setting_name": setting_name,
+                "build_complexity": build_complexity,
+                "query_complexity": query_complexity,
+                "insert_complexity": insert_complexity,
+                "bridge_prob": bridge_prob,
+                "bridge_start_lb": bridge_start_lb,
+                "bridge_start_hb": bridge_start_hb,
+                "bridge_end_lb": bridge_end_lb,
+                "bridge_end_hb": bridge_end_hb,
+            }
+            with open(experiment_name+'_'+setting_name+'_result_data.json', 'w') as f:
+                json.dump(result, f)

@@ -36,8 +36,6 @@
 #define LAYER_BASED_PATH_COMPRESSION true
 #define MEMORY_COLLECTION true
 #define ITERATION_SKIPS_TOMBSTONES false
-#define INSERT_NARROW_BEAM false
-const size_t INSERT_BEAM_WIDTH = 16;
 
 namespace diskann
 {
@@ -120,6 +118,12 @@ Index<T, TagT, LabelT>::Index(const IndexConfig &index_config, std::unique_ptr<A
     if (index_config.index_write_params != nullptr)
     {
         _indexingQueueSize = index_config.index_write_params->search_list_size;
+        _insertQueueSize = index_config.index_write_params->insert_list_size;
+        _bridgeStartLb = index_config.index_write_params->bridge_start_lb;
+        _bridgeStartHb = index_config.index_write_params->bridge_start_hb;
+        _bridgeEndLb = index_config.index_write_params->bridge_end_lb;
+        _bridgeEndHb = index_config.index_write_params->bridge_end_hb;
+        _bridgeProb = index_config.index_write_params->bridge_prob;
         _indexingRange = index_config.index_write_params->max_degree;
         _indexingMaxC = index_config.index_write_params->max_occlusion_size;
         _indexingAlpha = index_config.index_write_params->alpha;
@@ -3553,18 +3557,15 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     // Find and add appropriate graph edges
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     auto scratch = manager.scratch_space();
-    #if INSERT_NARROW_BEAM
-    scratch->resize_for_new_L(INSERT_BEAM_WIDTH);
-    #endif
     std::vector<uint32_t> pruned_list; // it is the set best candidates to connect to this point
     if (_filtered_index)
     {
         // when filtered the best_candidates will share the same label ( label_present > distance)
-        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, false);
+        search_for_point_and_prune(location, _insertQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, false);
     }
     else
     { // TODO (SylviaZiyuZhang): important algorithmic part
-        search_for_point_and_prune(location, _indexingQueueSize, pruned_list, scratch, false, 0, true);
+        search_for_point_and_prune(location, _insertQueueSize, pruned_list, scratch, false, 0, true);
     }
     // TODO (SylviaZiyuZhang): FIXME get rid of the assertion
     assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)

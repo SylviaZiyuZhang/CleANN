@@ -57,7 +57,13 @@ class DynamicMemoryIndex:
         index_directory: str,
         max_vectors: int,
         complexity: int,
+        insert_complexity: int,
         graph_degree: int,
+        bridge_start_lb: int,
+        bridge_start_hb: int,
+        bridge_end_lb: int,
+        bridge_end_hb: int,
+        bridge_prob: float,
         saturate_graph: bool = defaults.SATURATE_GRAPH,
         max_occlusion_size: int = defaults.MAX_OCCLUSION_SIZE,
         alpha: float = defaults.ALPHA,
@@ -153,7 +159,13 @@ class DynamicMemoryIndex:
             dimensions=dimensions,
             max_vectors=max_vectors,
             complexity=complexity,
+            insert_complexity=insert_complexity,
             graph_degree=graph_degree,
+            bridge_start_lb=bridge_start_lb,
+            bridge_start_hb=bridge_start_hb,
+            bridge_end_lb=bridge_end_lb,
+            bridge_end_hb=bridge_end_hb,
+            bridge_prob=bridge_prob,
             saturate_graph=saturate_graph,
             max_occlusion_size=max_occlusion_size,
             alpha=alpha,
@@ -175,7 +187,13 @@ class DynamicMemoryIndex:
         dimensions: int,
         max_vectors: int,
         complexity: int,
+        insert_complexity: int,
         graph_degree: int,
+        bridge_start_lb: int,
+        bridge_start_hb: int,
+        bridge_end_lb: int,
+        bridge_end_hb: int,
+        bridge_prob: float,
         saturate_graph: bool = defaults.SATURATE_GRAPH,
         max_occlusion_size: int = defaults.MAX_OCCLUSION_SIZE,
         alpha: float = defaults.ALPHA,
@@ -254,7 +272,13 @@ class DynamicMemoryIndex:
 
         self._max_vectors = max_vectors
         self._complexity = complexity
+        self._insert_complexity = complexity
         self._graph_degree = graph_degree
+        self._bridge_start_lb = bridge_start_lb
+        self._bridge_start_hb = bridge_start_hb
+        self._bridge_end_lb = bridge_end_lb
+        self._bridge_end_hb = bridge_end_hb
+        self._bridge_prob = bridge_prob
 
         if vector_dtype == np.uint8:
             _index = _native_dap.DynamicMemoryUInt8Index
@@ -268,6 +292,12 @@ class DynamicMemoryIndex:
             dimensions=dimensions,
             max_vectors=max_vectors,
             complexity=complexity,
+            insert_complexity=insert_complexity,
+            bridge_start_lb=bridge_start_lb,
+            bridge_start_hb=bridge_start_hb,
+            bridge_end_lb=bridge_end_lb,
+            bridge_end_hb=bridge_end_hb,
+            bridge_prob=bridge_prob,
             graph_degree=graph_degree,
             saturate_graph=saturate_graph,
             max_occlusion_size=max_occlusion_size,
