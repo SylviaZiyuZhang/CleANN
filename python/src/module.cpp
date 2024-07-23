@@ -119,6 +119,8 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
     size_t num_queries = queries.shape()[0];
     py::array_t<diskannpy::DynamicIdType> ids({num_queries, query_k});
     py::array_t<float> dists({num_queries, query_k});
+    std::vector<size_t> latencies_arr;
+    latencies_arr.resize(update_list.size());
 
     size_t update_count = 0;
     index._index.print_status();
@@ -132,27 +134,27 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
         auto [update_type, update_id] = update_list.at(current_update);
         if (update_type == 0) { // insert
             auto id = update_id + 1;
+            auto start_time = std::chrono::high_resolution_clock::now();
             index._index.insert_point(data.data(update_id), id);
+            auto end_time = std::chrono::high_resolution_clock::now();
+            latencies_arr[current_update] = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
         } else if (update_type == 1 || update_type == 3) { // query
             // 1 means improve not allowed, 3 means improve allowed
             std::vector<float *> empty_vector;
-            bool improvement_allowed = update_id == 3;
+            bool improvement_allowed = update_type == 3;
+            auto start_time = std::chrono::high_resolution_clock::now();
             index._index.search_with_tags(queries.data(update_id), query_k, query_complexity,
                                           ids.mutable_data(update_id), dists.mutable_data(update_id), empty_vector, improvement_allowed);
+            auto end_time = std::chrono::high_resolution_clock::now();
+            latencies_arr[current_update] = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
             // Fix ids
             for (size_t i = 0; i < query_k; i++)
             {
                 ids.mutable_data(update_id)[i]--;
             }
-            /* Record edge analytics
-            if (update_id == update_list.size() - 1 && plan_id % 20 == 0) {
-                char filename[50];
-                sprintf(filename, "edge_analytics_%zu.csv", plan_id);
-                index._index.save_edge_analytics(filename);
-            }
-            */ 
         } else if (update_type == 2) { // delete
             index.mark_deleted(update_id + 1);
+            latencies_arr[current_update] = 0;
         }  else {
             std::cout << "Unrecognized update type " << update_type << std::endl;
         }
@@ -161,20 +163,8 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
             index.consolidate_delete();
         }
     }
-    /*
-    if (plan_id % 3 == 0) {
-        char filename[50];
-        sprintf(filename, "graph_file_%zu.out", plan_id);
-        index._index.save_graph_synchronized(filename);
-        if (plan_id > 0) {
-            char alt_filename[50];
-            sprintf(alt_filename, "graph_file_%zu.out", plan_id-3);
-            index._index.compare_with_alt_graph(alt_filename);
-        }
-    }
-    */
-
-    return std::make_pair(ids, dists);
+    py::array_t<size_t> latencies(latencies_arr.size(), latencies_arr.data());
+    return std::make_tuple(ids, dists, latencies);
 }
 
 PYBIND11_MODULE(_diskannpy, m)
