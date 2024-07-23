@@ -124,6 +124,7 @@ Index<T, TagT, LabelT>::Index(const IndexConfig &index_config, std::unique_ptr<A
         _bridgeEndLb = index_config.index_write_params->bridge_end_lb;
         _bridgeEndHb = index_config.index_write_params->bridge_end_hb;
         _bridgeProb = index_config.index_write_params->bridge_prob;
+        diskann::cout << "Initializing with bridge probability " << _bridgeProb << std::endl;
         _indexingRange = index_config.index_write_params->max_degree;
         _indexingMaxC = index_config.index_write_params->max_occlusion_size;
         _indexingAlpha = index_config.index_write_params->alpha;
@@ -1217,27 +1218,23 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     }
     #if LAYER_BASED_PATH_COMPRESSION
     if ((!search_invocation) || improvement_allowed) {
-        std::vector<uint32_t> same_generation_siblings;
-        size_t n_points_considered = 0;
-        size_t cur_layer = 0;
-        while (n_points_considered < depth_record.size()) {
-            for (const auto& p: depth_record) {
-                if (p.second == cur_layer) {
-                    n_points_considered ++;
-                    if (cur_layer > 9)
-                        same_generation_siblings.push_back(p.first);
+        std::vector<uint32_t> start_candidates;
+        std::vector<uint32_t> end_candidates;
+        for (const auto& p: depth_record) {
+            if (p.second >= _bridgeStartLb && p.second < _bridgeStartHb) {
+                start_candidates.push_back(p.first);
+            }
+            if (p.second >= _bridgeEndLb && p.second < _bridgeEndHb) {
+                end_candidates.push_back(p.first);
+            }
+        }
+        for (uint32_t id1: start_candidates) {
+            for (uint32_t id2: end_candidates) {
+                if (id1 != id2 && (rand() % 100) / 100 < _bridgeProb) {
+                    compression_starts.push_back(id1);
+                    compression_ends.push_back(id2);
                 }
             }
-            for (uint32_t id1: same_generation_siblings) {
-                for (uint32_t id2: same_generation_siblings) {
-                    if (id1 != id2) {
-                        compression_starts.push_back(id1);
-                        compression_ends.push_back(id2);
-                    }
-                }
-            }
-            same_generation_siblings.clear();
-            cur_layer ++;
         }
         add_compression_edges(compression_starts, compression_ends, scratch);
     }

@@ -154,11 +154,12 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 test_search_count = 0
                 actual_queries = []
                 actual_update_list = []
-                if it[0] == 1 or it[0] == 3 and it[1] < len(queries): # 1: test queries, 3: train queries
-                    actual_queries.append(queries[it[1]])
-                    actual_update_list.append((it[0], len(actual_queries) - 1))
-                else:
-                    actual_update_list.append(it)
+                for it in update_list:
+                    if it[0] == 1 or it[0] == 3 and it[1] < len(queries): # 1: test queries, 3: train queries
+                        actual_queries.append(queries[it[1]])
+                        actual_update_list.append((it[0], len(actual_queries) - 1))
+                    else:
+                        actual_update_list.append(it)
 
                 consolidate = 1 if plan_consolidate else 0
                 start_plan_time = time.time()
