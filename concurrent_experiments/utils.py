@@ -114,6 +114,9 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
         plan_names_list = []
         plan_ids_list = []
         cur_plan = 0
+        p99_list = []
+        p50_list = []
+        p90_list = []
         for plan_name, data, queries, update_list, optional_gt, plan_consolidate in plans:
             print("Starting plan ", plan_name)
             
@@ -173,6 +176,9 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             all_latencies_list.append(plan_total_time / num_updates)
             plan_ids_list.append(cur_plan)
             plan_names_list.append(plan_name)
+            p99_list.append(np.percentile(results[2], 99))
+            p50_list.append(np.percentile(results[2], 50))
+            p90_list.append(np.percentile(results[2], 90))
             cur_plan += 1
 
         all_times["Total"].append(time.time() - start_overall_time)
@@ -188,9 +194,12 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             "recalls": all_recalls_list,
             "mses": all_mses_list,
             "latencies": all_latencies_list,
+            "p99_latencies": p99_list,
+            "p50_latencies": p50_list,
+            "p90_latencies": p90_list,
             "num_updates": all_num_updates_list,
             "new_times": new_times,
-            "speedups": speedups
+            "speedups": speedups,
         }
         with open(experiment_name+'_result_data.json', 'w') as f:
             json.dump(result, f)
