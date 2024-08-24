@@ -40,6 +40,7 @@ class InMemGraphStore : public AbstractGraphStore
     virtual void record_consolidate(const location_t i) override;
     virtual void mark_live(const location_t i) override;
     virtual void mark_tombstoned(const location_t i) override;
+    virtual void swap_tombstone_record(const location_t a, const location_t b) override;
 
   protected:
     virtual std::tuple<uint32_t, uint32_t, size_t> load_impl(const std::string &filename, size_t expected_num_points);

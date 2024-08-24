@@ -51,6 +51,7 @@ class AbstractGraphStore
     virtual void record_consolidate(const location_t i) = 0;
     virtual void mark_live(const location_t i) = 0;
     virtual void mark_tombstoned(const location_t i) = 0;
+    virtual void swap_tombstone_record(const location_t a, const location_t b) = 0;
 
     // Total internal points _max_points + _num_frozen_points
     size_t get_total_points()

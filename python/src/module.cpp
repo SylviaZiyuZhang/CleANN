@@ -129,7 +129,6 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
     latencies_arr.resize(update_list.size());
 
     size_t update_count = 0;
-    index._index.print_status();
 #pragma omp parallel for schedule(dynamic, 1)
     for (size_t for_openmp = 0; for_openmp < update_list.size(); for_openmp++)
     {

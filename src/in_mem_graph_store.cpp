@@ -49,6 +49,12 @@ void InMemGraphStore::swap_neighbours(const location_t a, location_t b)
 {
     _graph[a].swap(_graph[b]);
 };
+void InMemGraphStore::swap_tombstone_record(const location_t a, location_t b)
+{
+    int r = _consolidate_hits[a]; 
+    _consolidate_hits[a] = _consolidate_hits[b];
+    _consolidate_hits[b] = r;
+};
 
 void InMemGraphStore::set_neighbours(const location_t i, std::vector<location_t> &neighbours)
 {

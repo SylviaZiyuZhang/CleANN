@@ -92,7 +92,7 @@ def parse_ann_benchmarks_hdf5(data_path):
 
 # plans should be a list of pairs of the form (plan_name, data, queries, update_list, Optional[ground_truth])
 def run_dynamic_test(plans, neighbors, dists, max_vectors,
-    experiment_name="trial", threads=[8], distance_metric="l2",
+    experiment_name="trial", threads=[32], distance_metric="l2",
     batch_build=False, batch_build_data=None, batch_build_tags=None,
     build_complexity=64, insert_complexity=64, graph_degree=64, query_complexity=64, query_k=10,
     bridge_start_lb=3, bridge_start_hb=5, bridge_end_lb=9, bridge_end_hb=64, bridge_prob=0.5,
@@ -148,7 +148,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
             p90_list = []
             for plan_name, data, queries, update_list, optional_gt, plan_consolidate in plans:
                 print("Starting plan ", plan_name)
-                
+                dynamic_index._index.print_status()
                 recall_count = 0
                 search_count = 0
                 test_search_count = 0

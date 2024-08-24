@@ -32,9 +32,9 @@
 #define INSERT_FIXES_DELETES false
 #define SEARCH_FIXES_DELETES false
 #define COMPLICATED_DYNAMIC_DELETE false
-#define FIXES_DELETES_LOWER_LAYER true
+#define FIXES_DELETES_LOWER_LAYER false
 #define LAYER_BASED_PATH_COMPRESSION true
-#define MEMORY_COLLECTION true
+#define MEMORY_COLLECTION false
 #define ITERATION_SKIPS_TOMBSTONES false
 
 namespace diskann
@@ -1080,7 +1080,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             copy_of_neighbors.assign(neighbors.begin(), neighbors.end());
             #if MEMORY_COLLECTION
             _tombstone_state_locks[n].lock();
-            if (_graph_store->get_num_consolidates(n) >= 10) {
+            if (_graph_store->get_num_consolidates(n) >= 7) {
                 {
                     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
                     _graph_store->mark_live(n);
@@ -1106,11 +1106,15 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
             if (is_not_visited(id)) {
                 #if ITERATION_SKIPS_TOMBSTONES
-                _tombstone_state_locks[id].lock();
-                if ((!_graph_store->is_tombstoned(id)) || improvement_allowed) {
+                if (search_invocation && (!improvement_allowed)) {
+                    _tombstone_state_locks[id].lock();
+                    if ((!_graph_store->is_tombstoned(id))) {
+                        id_scratch.push_back(id);
+                    }
+                    _tombstone_state_locks[id].unlock();
+                } else {
                     id_scratch.push_back(id);
                 }
-                _tombstone_state_locks[id].unlock();
                 #else
                 id_scratch.push_back(id);
                 #endif
@@ -1217,22 +1221,30 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
     }
     #if LAYER_BASED_PATH_COMPRESSION
+    // Comments are temporarily implementing same layer constraint
     if ((!search_invocation) || improvement_allowed) {
-        std::vector<uint32_t> start_candidates;
-        std::vector<uint32_t> end_candidates;
+        // std::vector<uint32_t> start_candidates;
+        // std::vector<uint32_t> end_candidates;
+	std::vector<std::pair<TagT, uint32_t>> start_candidates;
+	std::vector<std::pair<TagT, uint32_t>> end_candidates;
         for (const auto& p: depth_record) {
             if (p.second >= _bridgeStartLb && p.second < _bridgeStartHb) {
-                start_candidates.push_back(p.first);
+                // start_candidates.push_back(p.first);
+                start_candidates.push_back(p);
             }
             if (p.second >= _bridgeEndLb && p.second < _bridgeEndHb) {
-                end_candidates.push_back(p.first);
+                // end_candidates.push_back(p.first);
+                end_candidates.push_back(p);
             }
         }
-        for (uint32_t id1: start_candidates) {
-            for (uint32_t id2: end_candidates) {
-                if (id1 != id2 && (rand() % 100) / 100 < _bridgeProb) {
-                    compression_starts.push_back(id1);
-                    compression_ends.push_back(id2);
+        // for (uint32_t id1: start_candidates) {
+        //     for (uint32_t id2: end_candidates) {
+        for (auto p1: start_candidates) {
+            for (auto p2: end_candidates) {
+                // if (id1 != id2 && (rand() % 100) / 100 < _bridgeProb) {
+                if (p1.first != p2.first && p1.second == p2.second) {
+                    compression_starts.push_back(p1.first);
+                    compression_ends.push_back(p2.first);
                 }
             }
         }
@@ -1730,8 +1742,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
         _start = calculate_entry_point();
 
     diskann::Timer link_timer;
-// TODO (SylviaZiyuZhang): revert this
-// #pragma omp parallel for schedule(dynamic, 2048)
+#pragma omp parallel for schedule(dynamic, 2048)
     for (int64_t node_ctr = 0; node_ctr < (int64_t)(visit_order.size()); node_ctr++)
     {
         auto node = visit_order[node_ctr];
@@ -2901,7 +2912,7 @@ inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t ra
             expanded_nodes_set.insert(ngh);
             _tombstone_state_locks[ngh].unlock();
         }
-        else if (ngh_hits < 10) // PREMATURE FREE: does not consolidate anymore after enough hits, avoids deadlock with freeing
+        else if (ngh_hits < 7) // PREMATURE FREE: does not consolidate anymore after enough hits, avoids deadlock with freeing
         {
             modify = true;
             _graph_store->record_consolidate(ngh);
@@ -3305,6 +3316,8 @@ void Index<T, TagT, LabelT>::reposition_points(uint32_t old_location_start, uint
         {
             assert(_graph_store->get_neighbours(new_location_start + loc_offset).empty());
             _graph_store->swap_neighbours(new_location_start + loc_offset, old_location_start + loc_offset);
+            _graph_store->mark_live(new_location_start + loc_offset);
+            _graph_store->swap_tombstone_record(new_location_start + loc_offset, old_location_start + loc_offset);
             if (_dynamic_index && _filtered_index)
             {
                 _location_to_labels[new_location_start + loc_offset].swap(
@@ -3327,6 +3340,8 @@ void Index<T, TagT, LabelT>::reposition_points(uint32_t old_location_start, uint
         {
             assert(_graph_store->get_neighbours(new_location_start + loc_offset - 1u).empty());
             _graph_store->swap_neighbours(new_location_start + loc_offset - 1u, old_location_start + loc_offset - 1u);
+            _graph_store->mark_live(new_location_start + loc_offset - 1u);
+            _graph_store->swap_tombstone_record(new_location_start + loc_offset - 1u, old_location_start + loc_offset - 1u);
             if (_dynamic_index && _filtered_index)
             {
                 _location_to_labels[new_location_start + loc_offset - 1u].swap(
@@ -3380,6 +3395,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     _data_store->resize((location_t)new_internal_points);
     _graph_store->resize_graph(new_internal_points);
     _locks = std::vector<non_recursive_mutex>(new_internal_points);
+    _tombstone_state_locks = std::vector<non_recursive_mutex>(new_internal_points);
 
     if (_num_frozen_pts != 0)
     {

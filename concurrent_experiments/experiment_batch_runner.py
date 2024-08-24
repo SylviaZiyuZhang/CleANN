@@ -17,6 +17,8 @@ DATASET_NAME_DICT = {
     "deep-image-96-angular": "deep-image",
     "spacev-100-euclidean-30m-samples": "spacev-30m",
     "yandextti-200-mips-10m-subset": "yandextti-10m",
+    "huffpost-256-angular": "huffpost",
+    "adversarial-128-euclidean": "adversarial",
 }
 
 def main():
