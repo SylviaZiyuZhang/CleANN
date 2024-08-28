@@ -33,6 +33,7 @@ template <typename T> class natural_number_set
     T pop_any();
     void clear();
     size_t size() const;
+    size_t capacity() const;
     bool is_in_set(T id) const;
 
   private:

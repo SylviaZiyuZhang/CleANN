@@ -32,9 +32,9 @@
 #define INSERT_FIXES_DELETES false
 #define SEARCH_FIXES_DELETES false
 #define COMPLICATED_DYNAMIC_DELETE false
-#define FIXES_DELETES_LOWER_LAYER false
-#define LAYER_BASED_PATH_COMPRESSION true
-#define MEMORY_COLLECTION false
+#define FIXES_DELETES_LOWER_LAYER true
+#define LAYER_BASED_PATH_COMPRESSION false
+#define MEMORY_COLLECTION true
 #define ITERATION_SKIPS_TOMBSTONES false
 
 namespace diskann
@@ -570,7 +570,8 @@ size_t Index<T, TagT, LabelT>::load_data(std::string filename)
 #endif
 
     // since we are loading a new dataset, _empty_slots must be cleared
-    _empty_slots.clear();
+    _empty_slots_fresh.clear();
+    _empty_slots_reused.clear();
 
     if (file_dim != _dim)
     {
@@ -735,11 +736,13 @@ void Index<T, TagT, LabelT>::load(const char *filename, uint32_t num_threads, ui
     }
 #endif
     _nd = data_file_num_pts - _num_frozen_pts;
-    _empty_slots.clear();
-    _empty_slots.reserve(_max_points);
+    _empty_slots_fresh.clear();
+    _empty_slots_fresh.reserve(_max_points);
+    _empty_slots_reused.clear();
+    _empty_slots_reused.reserve(_max_points);
     for (auto i = _nd; i < _max_points; i++)
     {
-        _empty_slots.insert((uint32_t)i);
+        _empty_slots_fresh.insert((uint32_t)i);
     }
 
     reposition_frozen_point_to_end();
@@ -1812,7 +1815,8 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     if (_nd > 0)
     {
         diskann::cout << "done. Link time: " << ((double)link_timer.elapsed() / (double)1000000) << "s" << std::endl;
-        diskann::cout << "Empty slot size: " << _empty_slots.size() << "; max points: " << _max_points << std::endl;
+        diskann::cout << "Empty slot size: " << _empty_slots_fresh.size() << "; max points: " << _max_points << std::endl;
+        diskann::cout << "Empty slot capacity: " << _empty_slots_fresh.capacity() << "; Reused empty slot capacity: " << _empty_slots_reused.capacity() << std::endl;
     }
 }
 
@@ -2055,16 +2059,20 @@ void Index<T, TagT, LabelT>::build_with_data_populated(const std::vector<TagT> &
             cnt++;
     }
 
-    _empty_slots.clear();
+    _empty_slots_fresh.clear();
+    _empty_slots_fresh.reserve(_max_points);
     assert(_nd <= _max_points);
     for (auto i = _nd; i < _max_points; i++)
     {
-        _empty_slots.insert((uint32_t)i);
+        _empty_slots_fresh.insert((uint32_t)i);
     }
+    _empty_slots_reused.clear();
+    _empty_slots_reused.reserve(_max_points);
     
     diskann::cout << "Index built with degree: max:" << max << "  avg:" << (float)total / (float)(_nd + _num_frozen_pts)
                   << "  min:" << min << "  count(deg<2):" << cnt << std::endl;
 
+    diskann::cout << "Empty slot capacity: " << _empty_slots_fresh.capacity() << "; Reused empty slot capacity: " << _empty_slots_reused.capacity() << std::endl;
     _has_built = true;
 }
 template <typename T, typename TagT, typename LabelT>
@@ -2807,7 +2815,7 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
     {
         for (uint32_t slot = (uint32_t)_nd; slot < _max_points; ++slot)
         {
-            _empty_slots.insert(slot);
+            _empty_slots_fresh.insert(slot);
         }
     }
     this->_deletes_enabled = true;
@@ -2968,7 +2976,7 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes(const IndexWrit
         std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
         std::shared_lock<std::shared_timed_mutex> tl(_tag_lock);
         std::shared_lock<std::shared_timed_mutex> dl(_delete_lock);
-        if (_empty_slots.size() + _nd != _max_points)
+        if (_empty_slots_fresh.size() + _empty_slots_reused.size() + _nd != _max_points)
         {
             std::string err = "#empty slots + nd != max points";
             diskann::cerr << err << std::endl;
@@ -3025,7 +3033,7 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes(const IndexWrit
 #pragma omp parallel for num_threads(num_threads) schedule(dynamic, 8192) reduction(+ : num_calls_to_process_delete)
     for (int64_t loc = 0; loc < (int64_t)_max_points; loc++)
     {
-        if (old_delete_set->find((uint32_t)loc) == old_delete_set->end() && !_empty_slots.is_in_set((uint32_t)loc))
+        if (old_delete_set->find((uint32_t)loc) == old_delete_set->end() && !_empty_slots_fresh.is_in_set((uint32_t)loc) && !_empty_slots_reused.is_in_set((uint32_t)loc))
         {
             ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
             auto scratch = manager.scratch_space();
@@ -3044,7 +3052,7 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes(const IndexWrit
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
     size_t ret_nd = release_locations(*old_delete_set);
     size_t max_points = _max_points;
-    size_t empty_slots_size = _empty_slots.size();
+    size_t empty_slots_size = _empty_slots_fresh.size() + _empty_slots_reused.size();;
 
     std::shared_lock<std::shared_timed_mutex> dl(_delete_lock);
     size_t delete_set_size = _delete_set->size();
@@ -3202,11 +3210,12 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
         }
     }
 
-    _empty_slots.clear();
+    // TODO (SylviaZiyuZhang) this is not actually correct, fix it.
+    _empty_slots_fresh.clear();
     // mark all slots after _nd as empty
     for (auto i = _nd; i < _max_points; i++)
     {
-        _empty_slots.insert((uint32_t)i);
+        _empty_slots_fresh.insert((uint32_t)i);
     }
     _data_compacted = true;
     diskann::cout << "Time taken for compact_data: " << timer.elapsed() / 1000000. << "s." << std::endl;
@@ -3222,7 +3231,7 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
         return -1;
     }
     uint32_t location;
-    if (_data_compacted && _empty_slots.is_empty())
+    if (_data_compacted && _empty_slots_fresh.is_empty() && _empty_slots_reused.is_empty())
     {
         // This code path is encountered when enable_delete hasn't been
         // called yet, so no points have been deleted and _empty_slots
@@ -3232,10 +3241,13 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
     }
     else
     {
-        assert(_empty_slots.size() != 0);
-        assert(_empty_slots.size() + _nd == _max_points);
-
-        location = _empty_slots.pop_any();
+        assert(_empty_slots_fresh.size() != 0 || _empty_slots_reused.size() != 0);
+        assert(_empty_slots_fresh.size() + _empty_slots_reused.size() + _nd == _max_points);
+	if (_empty_slots_reused.size() != 0) {
+	    location = _empty_slots_reused.pop_any();
+	} else {
+	    location = _empty_slots_fresh.pop_any();
+	}
         _delete_set->erase(location);
         _graph_store->mark_live(location);
     }
@@ -3245,10 +3257,11 @@ template <typename T, typename TagT, typename LabelT> int Index<T, TagT, LabelT>
 
 template <typename T, typename TagT, typename LabelT> size_t Index<T, TagT, LabelT>::release_location(int location)
 {
-    if (_empty_slots.is_in_set(location))
+    if (_empty_slots_fresh.is_in_set(location) || _empty_slots_reused.is_in_set(location))
         throw ANNException("Trying to release location, but location already in empty slots", -1, __FUNCSIG__, __FILE__,
                            __LINE__);
-    _empty_slots.insert(location);
+    _empty_slots_reused.insert(location);
+    // Using reused here bc this function is called by dynamic consolidation
 
     _nd--;
     return _nd;
@@ -3259,16 +3272,17 @@ size_t Index<T, TagT, LabelT>::release_locations(const tsl::robin_map<uint32_t, 
 {
     for (auto location : locations)
     {
-        if (_empty_slots.is_in_set(location.first))
+        if (_empty_slots_fresh.is_in_set(location.first) || _empty_slots_reused.is_in_set(location.first))
             throw ANNException("Trying to release location, but location "
                                "already in empty slots",
                                -1, __FUNCSIG__, __FILE__, __LINE__);
-        _empty_slots.insert(location.first);
+        _empty_slots_fresh.insert(location.first);
+	// Using fresh here bc this function is called by batch consolidation.
 
         _nd--;
     }
 
-    if (_empty_slots.size() + _nd != _max_points)
+    if (_empty_slots_fresh.size() + _empty_slots_reused.size() + _nd != _max_points)
         throw ANNException("#empty slots + nd != max points", -1, __FUNCSIG__, __FILE__, __LINE__);
 
     return _nd;
@@ -3390,7 +3404,7 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
 {
     const size_t new_internal_points = new_max_points + _num_frozen_pts;
     auto start = std::chrono::high_resolution_clock::now();
-    assert(_empty_slots.size() == 0); // should not resize if there are empty slots.
+    assert(_empty_slots_fresh.size() == 0 && _empty_slots_reused.size() == 0); // should not resize if there are empty slots.
 
     _data_store->resize((location_t)new_internal_points);
     _graph_store->resize_graph(new_internal_points);
@@ -3404,10 +3418,11 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     }
 
     _max_points = new_max_points;
-    _empty_slots.reserve(_max_points);
+    _empty_slots_fresh.reserve(_max_points);
+    _empty_slots_reused.reserve(_max_points);
     for (auto i = _nd; i < _max_points; i++)
     {
-        _empty_slots.insert((uint32_t)i);
+        _empty_slots_fresh.insert((uint32_t)i);
     }
 
     auto stop = std::chrono::high_resolution_clock::now();
@@ -3739,7 +3754,10 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     diskann::cout << "Average degree: " << _graph_store->get_edge_count() / n_points << std::endl;
     diskann::cout << "Location to tag size: " << _location_to_tag.size() << std::endl;
     diskann::cout << "Tag to location size: " << _tag_to_location.size() << std::endl;
-    diskann::cout << "Number of empty slots: " << _empty_slots.size() << std::endl;
+    diskann::cout << "Number of fresh empty slots: " << _empty_slots_fresh.size() << std::endl;
+    diskann::cout << "Capacity of fresh empty slots: " << _empty_slots_fresh.capacity() << std::endl;
+    diskann::cout << "Number of reused empty slots: " << _empty_slots_reused.size() << std::endl;
+    diskann::cout << "Capacity of reused empty slots: " << _empty_slots_reused.capacity() << std::endl;
     diskann::cout << std::boolalpha << "Data compacted: " << this->_data_compacted << std::endl;
     diskann::cout << "Average insert comparisons: " << _avg_insert_cmps << std::endl;
     diskann::cout << "Average search comparisons: " << _avg_search_cmps << std::endl;

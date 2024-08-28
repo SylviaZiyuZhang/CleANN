@@ -445,7 +445,8 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // _delete_set has locations marked deleted by lazy_delete. Will not be
     // immediately available for insert. consolidate_delete will release these
     // slots to _empty_slots.
-    natural_number_set<uint32_t> _empty_slots;
+    natural_number_set<uint32_t> _empty_slots_fresh;
+    natural_number_set<uint32_t> _empty_slots_reused;
     std::unique_ptr<tsl::robin_map<uint32_t, uint32_t>> _delete_set;
 
     bool _data_compacted = true;    // true if data has been compacted

@@ -22,6 +22,7 @@ template <typename T> void natural_number_set<T>::reserve(size_t count)
 {
     _values_vector.reserve(count);
     _values_bitset->reserve(count);
+    _values_bitset->resize(count + 1);
 }
 
 template <typename T> void natural_number_set<T>::insert(T id)
@@ -58,6 +59,11 @@ template <typename T> void natural_number_set<T>::clear()
 template <typename T> size_t natural_number_set<T>::size() const
 {
     return _values_vector.size();
+}
+
+template <typename T> size_t natural_number_set<T>::capacity() const
+{
+    return _values_bitset->size();
 }
 
 template <typename T> bool natural_number_set<T>::is_in_set(T id) const
