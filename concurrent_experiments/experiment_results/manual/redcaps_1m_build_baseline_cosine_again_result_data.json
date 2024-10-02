@@ -1,1 +1,0 @@
-{"num_threads": 8, "plan_names": ["Search"], "recalls": [0.148875], "latencies": [0.0002963003516197205], "num_updates": [800], "new_times": [0.23704028129577637, 61.8916289806366], "speedups": [1.0, 1.0]}
