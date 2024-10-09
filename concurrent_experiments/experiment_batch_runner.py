@@ -6,9 +6,9 @@ import argparse
 import numpy as np
 from pathlib import Path
 
-import test_redcaps_rolling_update
+import test_rolling_update
 
-from test_redcaps_rolling_update import load_or_create_test_data
+from test_rolling_update import load_or_create_test_data
 
 DATASET_NAME_DICT = {
     "redcaps-512-angular": "redcaps",
@@ -109,7 +109,7 @@ def main():
             for metric in metrics:
                 for experiment in experiments:
                     print("Running experiment {} for size {} metric {}".format(experiment, size, metric))
-                    experiment_func = getattr(test_redcaps_rolling_update, experiment)
+                    experiment_func = getattr(test_rolling_update, experiment)
                     experiment_func(
                         data=data,
                         queries=queries,
