@@ -14,9 +14,12 @@ InMemGraphStore::InMemGraphStore(const size_t total_pts, const size_t reserve_gr
     {
         _graph[i].reserve(reserve_graph_degree);
         _consolidate_hits[i] = -1;
+        _reverse_graph.push_back(tsl::robin_set<uint32_t>{});
     }
+    _reverse_graph_locks = std::vector<non_recursive_mutex>(total_pts);
 }
 
+// TODO (SylviaZiyuZhang): fix load and store for reverse pointers.
 std::tuple<uint32_t, uint32_t, size_t> InMemGraphStore::load(const std::string &index_path_prefix,
                                                              const size_t num_points)
 {
@@ -39,15 +42,37 @@ void InMemGraphStore::add_neighbour(const location_t i, location_t neighbour_id)
     {
         _max_observed_degree = (uint32_t)(_graph[i].size());
     }
+    _reverse_graph_locks[neighbour_id].lock();
+    _reverse_graph[neighbour_id].insert(i);
+    _reverse_graph_locks[neighbour_id].unlock();
 }
 
+// TODO (SylviaZiyuZhang): fix this for reverse edges
 void InMemGraphStore::clear_neighbours(const location_t i)
 {
+    for (auto nb: _graph.at(i)) {
+        _reverse_graph_locks[nb].lock();
+        _reverse_graph[nb].erase(i);
+        _reverse_graph_locks[nb].unlock();
+    }
     _graph[i].clear();
 };
 void InMemGraphStore::swap_neighbours(const location_t a, location_t b)
 {
+    for (auto nb: _graph.at(a)) {
+        _reverse_graph_locks[nb].lock();
+        _reverse_graph[nb].erase(a);
+        _reverse_graph[nb].insert(b);
+        _reverse_graph_locks[nb].unlock();
+    }
+    for (auto nb: _graph.at(b)) {
+        _reverse_graph_locks[nb].lock();
+        _reverse_graph[nb].erase(b);
+        _reverse_graph[nb].insert(a);
+        _reverse_graph_locks[nb].unlock();
+    }
     _graph[a].swap(_graph[b]);
+    
 };
 void InMemGraphStore::swap_tombstone_record(const location_t a, location_t b)
 {
@@ -59,6 +84,11 @@ void InMemGraphStore::swap_tombstone_record(const location_t a, location_t b)
 void InMemGraphStore::set_neighbours(const location_t i, std::vector<location_t> &neighbours)
 {
     auto old_neighbors = _graph.at(i);
+    for (auto nb: neighbours) {
+        _reverse_graph_locks[nb].lock();
+        _reverse_graph[nb].insert(i);
+        _reverse_graph_locks[nb].unlock();
+    }
     _graph[i].assign(neighbours.begin(), neighbours.end());
     if (_max_observed_degree < neighbours.size())
     {
@@ -90,6 +120,11 @@ size_t InMemGraphStore::resize_graph(const size_t new_size)
 {
     _graph.resize(new_size);
     _consolidate_hits.resize(new_size);
+    // The repositioning of the reverse pointer graph is taken care
+    // of since reposition_points in the index implementation
+    // uses graph_store functions (e.g. swap)
+    _reverse_graph.resize(new_size);
+    _reverse_graph_locks = std::vector<non_recursive_mutex>(new_size);
     set_total_points(new_size);
     return _graph.size();
 };
@@ -98,6 +133,7 @@ void InMemGraphStore::clear_graph()
 {
     _graph.clear();
     _consolidate_hits.clear();
+    _reverse_graph.clear();
 }
 
 #ifdef EXEC_ENV_OLS

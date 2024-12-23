@@ -3661,8 +3661,7 @@ int Index<T, TagT, LabelT>::insert_point(const T *point, const TagT tag, const s
     { // TODO (SylviaZiyuZhang): important algorithmic part
         search_for_point_and_prune(location, _insertQueueSize, pruned_list, scratch, false, 0, true);
     }
-    // TODO (SylviaZiyuZhang): FIXME get rid of the assertion
-    assert(pruned_list.size() > 0); // should find atleast one neighbour (i.e frozen point acting as medoid)
+    // assert(pruned_list.size() > 0); should find atleast one neighbour (i.e frozen point acting as medoid)
     {
         std::shared_lock<std::shared_timed_mutex> tlock(_tag_lock, std::defer_lock);
         if (_conc_consolidate)

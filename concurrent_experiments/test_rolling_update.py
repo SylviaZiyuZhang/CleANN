@@ -11,8 +11,8 @@ import concurrent.futures
 from pathlib import Path
 from multiprocessing import cpu_count, Pool, RawArray
 
-ROLLING_UPDATE_GET_STATIC_BASELINE = True
-BATCH_INSERT_GET_STATIC_BASELINE = True
+ROLLING_UPDATE_GET_STATIC_BASELINE = False
+BATCH_INSERT_GET_STATIC_BASELINE = False
 
 def get_cosine_dist(A, B):
     return - np.dot(A,B) / (np.linalg.norm(A) * np.linalg.norm(B))
@@ -1292,12 +1292,63 @@ def mixed_throughput_experiment(data, queries, dataset_name, gt_data_prefix,
         random_state = random.Random(i)
         random_state.shuffle(execution_plan)
         consolidate = False
-        if (i / update_batch_size) % 10 == 0 and i > 0:
-            consolidate = True
+        #if (i / update_batch_size) % 10 == 0 and i > 0:
+        #    consolidate = True
         plans.append(("Mixed+Train", data, all_queries, execution_plan, None, consolidate))
         # TODO (SylviaZiyuZhang): Try this first and remove or reduce the synchronization barrier if need be
     
     experiment_name = "{}_{}_{}_{}_mixed_throughput".format(dataset_name, size, setting_name, metric)
+    run_dynamic_test(
+        plans,
+        None,
+        None,
+        max_vectors=len(data),
+        experiment_name=experiment_name,
+        distance_metric=metric,
+        batch_build=True,
+        batch_build_data=data[:size],
+        batch_build_tags=[i for i in range(1, size+1)],
+        query_k=query_k,
+        build_complexity=build_complexity,
+        query_complexity=query_complexity,
+        graph_degree=graph_degree,
+        )
+
+def update_throughput_experiment(data, queries, dataset_name, gt_data_prefix,
+    setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
+    query_k=10, query_complexity=64, build_complexity=64, graph_degree=64, n_iter=2,
+):
+    assert(size > 500)
+    assert(size % 100 == 0)
+    assert(len(data) >= size * n_iter)
+    data = data[:n_iter * size]
+    n_update_batch = 100 * n_iter
+    update_batch_size = size // 100
+    n_queries = len(queries)
+
+    indexing_plan = [(0, i) for i in range(size)]
+    initial_lookup = [(1, i) for i in range(len(queries))]
+
+    plans=[]
+    suffix = ""
+    if shuffled_data:
+        suffix += "_shuffled"
+    if random_queries:
+        suffix += "_random_queries"
+
+    for i in range(0, (n_iter - 1) * size, update_batch_size):
+        execution_plan = []
+        for j in range(update_batch_size):
+            delete_id = i + j
+            insert_id = delete_id + size
+            execution_plan.append((0, insert_id))
+            execution_plan.append((2, delete_id))
+        consolidate = False
+        #if (i / update_batch_size) % 10 == 0 and i > 0:
+        #    consolidate = True
+        plans.append(("Update", data, queries, execution_plan, None, consolidate))
+    
+    experiment_name = "{}_{}_{}_{}_update_throughput".format(dataset_name, size, setting_name, metric)
     run_dynamic_test(
         plans,
         None,

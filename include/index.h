@@ -465,6 +465,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // Per node lock, cardinality=_max_points + _num_frozen_points
     std::vector<non_recursive_mutex> _locks;
     std::vector<non_recursive_mutex> _tombstone_state_locks;
+    std::vector<non_recursive_mutex> _reverse_locks;
 
     static const float INDEX_GROWTH_FACTOR;
 

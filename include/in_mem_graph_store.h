@@ -4,6 +4,7 @@
 #pragma once
 
 #include "abstract_graph_store.h"
+#include "locking.h"
 
 namespace diskann
 {
@@ -57,6 +58,8 @@ class InMemGraphStore : public AbstractGraphStore
     uint32_t _max_observed_degree = 0;
 
     std::vector<std::vector<uint32_t>> _graph;
+    std::vector<tsl::robin_set<uint32_t>> _reverse_graph;
+    std::vector<non_recursive_mutex> _reverse_graph_locks; 
     // -1 in _consolidate_hits indicates that the point is live
     // if the point is tombstoned, records the number of times it has been
     // fixed on-the-fly
