@@ -19,6 +19,8 @@ DATASET_NAME_DICT = {
     "yandextti-200-mips-10m-subset": "yandextti-10m",
     "huffpost-256-angular": "huffpost",
     "adversarial-128-euclidean": "adversarial",
+    "adversarial-2-128-euclidean": "adversarial-2",
+    "adversarial-2-rand-order-128-euclidean": "adversarial-2-rand-order",
 }
 
 def main():

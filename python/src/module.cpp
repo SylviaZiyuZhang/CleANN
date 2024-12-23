@@ -91,6 +91,7 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
              "num_threads"_a)
         .def("save", &diskannpy::DynamicMemoryIndex<T>::save, "save_path"_a = "", "compact_before_save"_a = false)
         .def("save_graph_synchronized", &diskannpy::DynamicMemoryIndex<T>::save_graph_synchronized, "file_name"_a="")
+        .def("set_start_points_at_random", &diskannpy::DynamicMemoryIndex<T>::set_start_points_at_random, "radius"_a, "random_seed"_a)
         .def("compare_with_alt_graph", &diskannpy::DynamicMemoryIndex<T>::compare_with_alt_graph, "alt_file_name"_a="")
         .def("save_edge_analytics", &diskannpy::DynamicMemoryIndex<T>::save_edge_analytics, "save_path"_a = "")
         .def("insert", &diskannpy::DynamicMemoryIndex<T>::insert, "vector"_a, "id"_a)

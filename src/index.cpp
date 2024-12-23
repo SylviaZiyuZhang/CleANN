@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT license.
 
+#include <algorithm>
+#include <random>
 #include <omp.h>
 #include <fstream>
 #include <cstdlib>
@@ -33,7 +35,7 @@
 #define SEARCH_FIXES_DELETES false
 #define COMPLICATED_DYNAMIC_DELETE false
 #define FIXES_DELETES_LOWER_LAYER false
-#define LAYER_BASED_PATH_COMPRESSION true
+#define LAYER_BASED_PATH_COMPRESSION false
 #define MEMORY_COLLECTION false
 #define ITERATION_SKIPS_TOMBSTONES false
 
@@ -1741,11 +1743,16 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     else
         _start = calculate_entry_point();
 
+    // Randomly reorder visit order for static build
+    auto rng = std::default_random_engine {};
+    std::shuffle(std::begin(visit_order), std::end(visit_order), rng);
+
     diskann::Timer link_timer;
 #pragma omp parallel for schedule(dynamic, 2048)
     for (int64_t node_ctr = 0; node_ctr < (int64_t)(visit_order.size()); node_ctr++)
     {
         auto node = visit_order[node_ctr];
+        // diskann::cout << "Visiting node " << node << std::endl;
 
         // Find and add appropriate graph edges
         ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
@@ -1809,6 +1816,80 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
             _graph_store->set_neighbours((location_t)node, new_out_neighbors);
         }
     }
+// Second pass
+
+    std::shuffle(std::begin(visit_order), std::end(visit_order), rng);
+    diskann::cout << "Starting second pass.." << std::flush;
+
+    #pragma omp parallel for schedule(dynamic, 2048)
+    for (int64_t node_ctr = 0; node_ctr < (int64_t)(visit_order.size()); node_ctr++)
+    {
+        auto node = visit_order[node_ctr];
+
+        // Find and add appropriate graph edges
+        ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+        auto scratch = manager.scratch_space();
+        std::vector<uint32_t> pruned_list;
+        if (_filtered_index)
+        {
+            search_for_point_and_prune(node, _indexingQueueSize, pruned_list, scratch, true, _filterIndexingQueueSize, false);
+        }
+        else
+        {
+            search_for_point_and_prune(node, _indexingQueueSize, pruned_list, scratch, false);
+        }
+        assert(pruned_list.size() > 0);
+
+        {
+            LockGuard guard(_locks[node]);
+
+            _graph_store->set_neighbours(node, pruned_list);
+            assert(_graph_store->get_neighbours((location_t)node).size() <= _indexingRange);
+        }
+
+        inter_insert(node, pruned_list, scratch);
+
+        if (node_ctr % 100000 == 0)
+        {
+            diskann::cout << "\r" << (100.0 * node_ctr) / (visit_order.size()) << "% of index build second pass completed."
+                          << std::flush;
+        }
+    }
+
+    if (_nd > 0)
+    {
+        diskann::cout << "Starting second pass final cleanup.." << std::flush;
+    }
+#pragma omp parallel for schedule(dynamic, 2048)
+    for (int64_t node_ctr = 0; node_ctr < (int64_t)(visit_order.size()); node_ctr++)
+    {
+        auto node = visit_order[node_ctr];
+        if (_graph_store->get_neighbours((location_t)node).size() > _indexingRange)
+        {
+            ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+            auto scratch = manager.scratch_space();
+
+            tsl::robin_set<uint32_t> dummy_visited(0);
+            std::vector<Neighbor> dummy_pool(0);
+            std::vector<uint32_t> new_out_neighbors;
+
+            for (auto cur_nbr : _graph_store->get_neighbours((location_t)node))
+            {
+                if (dummy_visited.find(cur_nbr) == dummy_visited.end() && cur_nbr != node)
+                {
+                    float dist = _data_store->get_distance(node, cur_nbr);
+                    dummy_pool.emplace_back(Neighbor(cur_nbr, dist));
+                    dummy_visited.insert(cur_nbr);
+                }
+            }
+            prune_neighbors(node, dummy_pool, new_out_neighbors, scratch, false);
+
+            _graph_store->clear_neighbours((location_t)node);
+            _graph_store->set_neighbours((location_t)node, new_out_neighbors);
+        }
+    }
+// End second pass
+
     if (_nd > 0)
     {
         diskann::cout << "done. Link time: " << ((double)link_timer.elapsed() / (double)1000000) << "s" << std::endl;

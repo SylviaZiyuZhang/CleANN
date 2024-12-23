@@ -42,6 +42,7 @@ class DynamicMemoryIndex
     void save_graph_synchronized(const std::string &file_name);
     void compare_with_alt_graph(const std::string &alt_file_name);
     void save_edge_analytics(const std::string &save_path);
+    void set_start_points_at_random(DT radius, uint32_t random_seed);
     NeighborsAndDistances<DynamicIdType> search(py::array_t<DT, py::array::c_style | py::array::forcecast> &query, uint64_t knn,
                                       uint64_t complexity, const bool improvement_allowed);
     NeighborsAndDistances<DynamicIdType> batch_search(py::array_t<DT, py::array::c_style | py::array::forcecast> &queries,

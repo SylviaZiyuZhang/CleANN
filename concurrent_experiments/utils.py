@@ -92,22 +92,43 @@ def parse_ann_benchmarks_hdf5(data_path):
 
 # plans should be a list of pairs of the form (plan_name, data, queries, update_list, Optional[ground_truth])
 def run_dynamic_test(plans, neighbors, dists, max_vectors,
-    experiment_name="trial", threads=[32], distance_metric="l2",
+    experiment_name="trial", threads=[56], distance_metric="l2",
     batch_build=False, batch_build_data=None, batch_build_tags=None,
     build_complexity=64, insert_complexity=64, graph_degree=64, query_complexity=64, query_k=10,
     bridge_start_lb=3, bridge_start_hb=5, bridge_end_lb=9, bridge_end_hb=64, bridge_prob=0.5,
 ):
 
-    settings = [ # name, build complexity, insert complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob
-        ('C', 64, 32, 128, 3, 6, 9, 64, 0.3),
-        ('D', 64, 64, 64, 3, 6, 9, 64, 0.3),
-        ('E', 64, 64, 64, 3, 6, 9, 64, 0.5),
-        ('F', 64, 32, 64, 3, 6, 9, 12, 0.7),
-        ('G', 64, 32, 32, 3, 6, 9, 12, 0.7),
-        ('H', 64, 32, 32, 9, 12, 9, 12, 0.3)
+    settings = [ # name, alpha, build complexity, insert complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob
+        #('C', 1.2, 64, 32, 128, 3, 6, 9, 64, 0.3),
+        #('D', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        #('E', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.5),
+        #('F', 1.2, 64, 32, 64, 3, 6, 9, 12, 0.7),
+        #('G', 1.2, 64, 32, 32, 3, 6, 9, 12, 0.7),
+        #('H', 1.2, 64, 32, 32, 9, 12, 9, 12, 0.3)
+        # param_sweep_6
+        # ('C1', 1, 64, 32, 128, 3, 6, 9, 64, 0.1),
+        # ('C4', 1.3, 64, 32, 128, 3, 6, 9, 64, 0.1),
+        # ('A1', 1, 64, 64, 100, 3, 6, 9, 64, 0.1),
+        # ('A4', 1.3, 64, 64, 100, 3, 6, 9, 64, 0.1),
+        # ('B4', 1.3, 64, 64, 75, 3, 6, 9, 64, 0.1),
+        # ('D1', 1, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        # ('D2', 1.1, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        # ('D3', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        # ('D4', 1.3, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        # ('E1', 1, 64, 64, 64, 3, 6, 9, 64, 0.5),
+        # ('E4', 1.3, 64, 64, 64, 3, 6, 9, 64, 0.5),
+        # baseline_sweep_2
+        #('baseline_B4', 1.3, 64, 64, 75, 3, 6, 9, 64, 0.1),
+        #('baseline_D3', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        #('baseline_A1', 1, 64, 64, 100, 3, 6, 9, 64, 0.1),
+        #('baseline_C3', 1.2, 64, 32, 128, 3, 6, 9, 64, 0.1),
+        #('baseline_C4', 1.3, 64, 32, 128, 3, 6, 9, 64, 0.1),
+
+        #('boundary_insert_test', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1), # mixed_throughput_cleann was measured here, mixed_throughput_consolidate
+        ('static_recompute', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
     ]
     for setting in settings:
-        setting_name, build_complexity, insert_complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob = setting
+        setting_name, alpha, build_complexity, insert_complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob = setting
         time_keys = [plan[0] for plan in plans] + ["Total"]
         all_times = {time_key: [] for time_key in time_keys}
         recall_keys = [plan[0] for plan in plans] + ["Recall"]
@@ -115,9 +136,11 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
         build_time = 0
 
         for num_threads in threads:
+            res_file_name = experiment_name+'_'+setting_name+'_t'+str(num_threads)+'_result_data.json'
             start_overall_time = time.time()
             dynamic_index = diskannpy.DynamicMemoryIndex(
                 distance_metric=distance_metric,
+                alpha=alpha,
                 vector_dtype=np.float32,
                 dimensions=plans[0][1].shape[1],
                 max_vectors=max_vectors,
@@ -135,6 +158,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 assert(len(batch_build_data) == len(batch_build_tags))
                 dynamic_index._index.build(batch_build_data, len(batch_build_data), batch_build_tags)
                 build_time = time.time() - start_build_time
+            else:
+                dynamic_index._index.set_start_points_at_random(radius=10.0, random_seed=42)
 
             all_recalls_list = []
             all_mses_list = []
@@ -226,6 +251,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 "p99_latencies": p99_list,
                 "p50_latencies": p50_list,
                 "p90_latencies": p90_list,
+                "alpha": alpha,
+                "query_k": query_k,
                 "num_updates": all_num_updates_list,
                 "new_times": new_times,
                 "speedups": speedups,
@@ -239,5 +266,5 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 "bridge_end_lb": bridge_end_lb,
                 "bridge_end_hb": bridge_end_hb,
             }
-            with open(experiment_name+'_'+setting_name+'_result_data.json', 'w') as f:
+            with open(res_file_name, 'w') as f:
                 json.dump(result, f)

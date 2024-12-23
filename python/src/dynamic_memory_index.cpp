@@ -162,6 +162,11 @@ template <class DT> void DynamicMemoryIndex<DT>::save_edge_analytics(const std::
     _index.save_edge_analytics(save_path.c_str());
 }
 
+template <class DT> void DynamicMemoryIndex<DT>::set_start_points_at_random(DT radius, uint32_t random_seed)
+{
+    _index.set_start_points_at_random(radius, random_seed);
+}
+
 template <class DT>
 NeighborsAndDistances<DynamicIdType> DynamicMemoryIndex<DT>::search(
     py::array_t<DT, py::array::c_style | py::array::forcecast> &query, const uint64_t knn, const uint64_t complexity, const bool improvement_allowed)
