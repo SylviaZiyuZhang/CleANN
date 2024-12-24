@@ -11,7 +11,7 @@ import concurrent.futures
 from pathlib import Path
 from multiprocessing import cpu_count, Pool, RawArray
 
-ROLLING_UPDATE_GET_STATIC_BASELINE = True
+ROLLING_UPDATE_GET_STATIC_BASELINE = False
 BATCH_INSERT_GET_STATIC_BASELINE = True
 
 def get_cosine_dist(A, B):
@@ -717,7 +717,7 @@ def small_batch_gradual_update_train_test_split_experiment(data, queries, datase
     if random_queries:
         suffix += "_random_queries"
     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
-        path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100"+suffix).expanduser(),
+        path=Path(gt_data_prefix +'/ann_rolling_update_gt_k50/'+dataset_name+"_"+metric+"_"+str(size)+"_100"+suffix).expanduser(),
         data=data[:size],
         data_to_update=data[size:2 * size],
         queries=queries,
@@ -1164,90 +1164,90 @@ def run_one_experiment_manual():
         random_queries=False
     )
 
-def small_batch_gradual_update_train_test_split_experiment(data, queries, dataset_name, gt_data_prefix,
-    setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
-    query_k=10, query_complexity=64, build_complexity=64, graph_degree=64
-):
-    assert(size > 500)
-    assert(size % 100 == 0)
-    assert(len(data) >= size * 2)
-    data = data[:2 * size]
-    n_update_batch = 100
-    update_batch_size = size // 100
-    n_queries = len(queries)
+# def small_batch_gradual_update_train_test_split_experiment(data, queries, dataset_name, gt_data_prefix,
+#     setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
+#     query_k=10, query_complexity=64, build_complexity=64, graph_degree=64
+# ):
+#     assert(size > 500)
+#     assert(size % 100 == 0)
+#     assert(len(data) >= size * 2)
+#     data = data[:2 * size]
+#     n_update_batch = 100
+#     update_batch_size = size // 100
+#     n_queries = len(queries)
 
-    indexing_plan = [(0, i) for i in range(size)]
-    initial_lookup = [(1, i) for i in range(len(queries))]
+#     indexing_plan = [(0, i) for i in range(size)]
+#     initial_lookup = [(1, i) for i in range(len(queries))]
 
-    plans=[]
-    suffix = ""
-    if shuffled_data:
-        suffix += "_shuffled"
-    if random_queries:
-        suffix += "_random_queries"
-    all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
-        path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100"+suffix).expanduser(),
-        data=data[:size],
-        data_to_update=data[size:2 * size],
-        queries=queries,
-        save=True,
-        k=query_k,
-        dataset_name=dataset_name,
-        metric=metric,
-        shuffled_data=False,
-        random_queries=False,
-    )
-    initial_lookup_gt_neighbors = all_gt_neighbors[0]
-    initial_lookup_gt_dists = all_gt_dists[0]
-    apx_total_initial_gt = 0.0
-    for ans in initial_lookup_gt_dists:
-        apx_total_initial_gt += abs(ans[0])
-    # apx_average_initial_gt helps perturb the query workload to generating training set
-    apx_average_initial_gt = apx_total_initial_gt / len(initial_lookup_gt_dists)
+#     plans=[]
+#     suffix = ""
+#     if shuffled_data:
+#         suffix += "_shuffled"
+#     if random_queries:
+#         suffix += "_random_queries"
+#     all_gt_neighbors, all_gt_dists = get_or_create_rolling_update_ground_truth(
+#         path=Path(gt_data_prefix +'/ann_rolling_update_gt/'+dataset_name+"_"+metric+"_"+str(size)+"_100"+suffix).expanduser(),
+#         data=data[:size],
+#         data_to_update=data[size:2 * size],
+#         queries=queries,
+#         save=True,
+#         k=query_k,
+#         dataset_name=dataset_name,
+#         metric=metric,
+#         shuffled_data=False,
+#         random_queries=False,
+#     )
+#     initial_lookup_gt_neighbors = all_gt_neighbors[0]
+#     initial_lookup_gt_dists = all_gt_dists[0]
+#     apx_total_initial_gt = 0.0
+#     for ans in initial_lookup_gt_dists:
+#         apx_total_initial_gt += abs(ans[0])
+#     # apx_average_initial_gt helps perturb the query workload to generating training set
+#     apx_average_initial_gt = apx_total_initial_gt / len(initial_lookup_gt_dists)
 
-    train_prop = 0.02
-    plans = []
+#     train_prop = 0.02
+#     plans = []
 
-    for i in range(0, size, update_batch_size):
-        update_plan = []
-        for j in range(update_batch_size):
-            delete_id = i + j
-            insert_id = delete_id + size
-            update_plan.append((0, insert_id))
-            update_plan.append((2, delete_id))
-        plans.append(("Update", data, queries, update_plan, None, False))
-        gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
-        gt_dists =all_gt_dists[1 + i // update_batch_size]
+#     for i in range(0, size, update_batch_size):
+#         update_plan = []
+#         for j in range(update_batch_size):
+#             delete_id = i + j
+#             insert_id = delete_id + size
+#             update_plan.append((0, insert_id))
+#             update_plan.append((2, delete_id))
+#         plans.append(("Update", data, queries, update_plan, None, False))
+#         gt_neighbors = all_gt_neighbors[1 + i // update_batch_size]
+#         gt_dists =all_gt_dists[1 + i // update_batch_size]
 
-        n_train = max(int(queries.shape[0] * train_prop), 100)
+#         n_train = max(int(queries.shape[0] * train_prop), 100)
         
-        train_queries = queries[np.random.choice(queries.shape[0], int(n_train), replace=False)]
-        if train_queries.dtype == np.dtype('int8'):
-            for j in range(len(train_queries)):
-                train_queries[j] += np.random.randint(-math.ceil(apx_average_initial_gt), math.ceil(apx_average_initial_gt), size=train_queries.shape[1], dtype=np.int8)
-        else:
-            for j in range(len(train_queries)):
-                train_queries[j] += np.random.normal(train_queries[j], apx_average_initial_gt, size=train_queries.shape[1])
+#         train_queries = queries[np.random.choice(queries.shape[0], int(n_train), replace=False)]
+#         if train_queries.dtype == np.dtype('int8'):
+#             for j in range(len(train_queries)):
+#                 train_queries[j] += np.random.randint(-math.ceil(apx_average_initial_gt), math.ceil(apx_average_initial_gt), size=train_queries.shape[1], dtype=np.int8)
+#         else:
+#             for j in range(len(train_queries)):
+#                 train_queries[j] += np.random.normal(train_queries[j], apx_average_initial_gt, size=train_queries.shape[1])
         
-        plans.append(("Train"+str(i), data, train_queries, [(3, i) for i in range(len(train_queries))], gt_neighbors, False))
-        plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, False))
+#         plans.append(("Train"+str(i), data, train_queries, [(3, i) for i in range(len(train_queries))], gt_neighbors, False))
+#         plans.append(("Search"+str(i), data, queries, initial_lookup, gt_neighbors, False))
     
-    experiment_name = "{}_{}_{}_{}_rolling_update_train_test_split".format(dataset_name, size, setting_name, metric)
-    run_dynamic_test(
-        plans,
-        gt_neighbors,
-        gt_dists,
-        max_vectors=len(data),
-        experiment_name=experiment_name,
-        distance_metric=metric,
-        batch_build=True,
-        batch_build_data=data[:size],
-        batch_build_tags=[i for i in range(1, size+1)],
-        query_k=query_k,
-        build_complexity=build_complexity,
-        query_complexity=query_complexity,
-        graph_degree=graph_degree,
-        )
+#     experiment_name = "{}_{}_{}_{}_rolling_update_train_test_split".format(dataset_name, size, setting_name, metric)
+#     run_dynamic_test(
+#         plans,
+#         gt_neighbors,
+#         gt_dists,
+#         max_vectors=len(data),
+#         experiment_name=experiment_name,
+#         distance_metric=metric,
+#         batch_build=True,
+#         batch_build_data=data[:size],
+#         batch_build_tags=[i for i in range(1, size+1)],
+#         query_k=query_k,
+#         build_complexity=build_complexity,
+#         query_complexity=query_complexity,
+#         graph_degree=graph_degree,
+#         )
 
 def mixed_throughput_experiment(data, queries, dataset_name, gt_data_prefix,
     setting_name="setting_name", size=5000, metric="l2", shuffled_data=False, random_queries=False,
