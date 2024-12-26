@@ -21,6 +21,7 @@ class InMemGraphStore : public AbstractGraphStore
                       const uint32_t start) override;
 
     virtual const std::vector<location_t> &get_neighbours(const location_t i) const override;
+    virtual const tsl::robin_set<location_t> &get_in_neighbours(const location_t i) const override;
     virtual void add_neighbour(const location_t i, location_t neighbour_id) override;
     virtual void clear_neighbours(const location_t i) override;
     virtual void swap_neighbours(const location_t a, location_t b) override;

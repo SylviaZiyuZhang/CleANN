@@ -170,6 +170,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     // If _conc_consolidates is set in the ctor, then this call can be invoked
     // alongside inserts and lazy deletes, else it acquires _update_lock
     DISKANN_DLLEXPORT consolidation_report consolidate_deletes(const IndexWriteParameters &parameters);
+    DISKANN_DLLEXPORT consolidation_report consolidate_deletes_reverse_edge_naive(const IndexWriteParameters &parameters);
     DISKANN_DLLEXPORT void add_multiple_neighbors_and_prune(const uint32_t location, std::vector<uint32_t> new_neighbors, const uint32_t exclude_loc);
 
     DISKANN_DLLEXPORT void prune_all_neighbors(const uint32_t max_degree, const uint32_t max_occlusion,
@@ -322,6 +323,12 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
         Another signature for process_delete for consolidation on the fly. Thread-safe.
     */
     void process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha);
+    /*
+        Signature for naive process delete using reverse edges. For each in neighbor, try to absorb its own
+        out neighborhood without changing other deleted siblings.
+    */
+    void process_delete_reverse_edge_naive(const tsl::robin_map<uint32_t, uint32_t> &old_delete_set, size_t deleted_loc,
+                                                   const uint32_t range, const uint32_t maxc, const float alpha);
 
     void initialize_query_scratch(uint32_t num_threads, uint32_t search_l, uint32_t indexing_l, uint32_t r,
                                   uint32_t maxc, size_t dim);

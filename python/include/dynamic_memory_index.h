@@ -49,6 +49,7 @@ class DynamicMemoryIndex
                                             uint64_t num_queries, uint64_t knn, uint64_t complexity,
                                             uint32_t num_threads);
     void consolidate_delete();
+    void consolidate_deletes_reverse_edge_naive();
     size_t num_points();
     void print_status();
 

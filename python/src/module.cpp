@@ -97,6 +97,7 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
         .def("insert", &diskannpy::DynamicMemoryIndex<T>::insert, "vector"_a, "id"_a)
         .def("mark_deleted", &diskannpy::DynamicMemoryIndex<T>::mark_deleted, "id"_a)
         .def("consolidate_delete", &diskannpy::DynamicMemoryIndex<T>::consolidate_delete)
+        .def("consolidate_deletes_reverse_edge_naive", &diskannpy::DynamicMemoryIndex<T>::consolidate_deletes_reverse_edge_naive)
         .def("num_points", &diskannpy::DynamicMemoryIndex<T>::num_points)
         .def("print_status", &diskannpy::DynamicMemoryIndex<T>::print_status);
 
@@ -165,8 +166,9 @@ auto run_dynamic_test(diskannpy::DynamicMemoryIndex<float> &index,
             std::cout << "Unrecognized update type " << update_type << std::endl;
         }
         if (consolidate && update_id == 0) {
-            std::cout << "Consolidating" << std::endl;
-            index.consolidate_delete();
+            std::cout << "Consolidating (reverse edge naive)" << std::endl; // TODO (SylviaZiyuZhang): Refine this test suite
+            // index.consolidate_delete();
+            index.consolidate_deletes_reverse_edge_naive();
         }
     }
     py::array_t<size_t> latencies(latencies_arr.size(), latencies_arr.data());

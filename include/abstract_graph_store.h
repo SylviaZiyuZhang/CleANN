@@ -28,6 +28,7 @@ class AbstractGraphStore
 
     // not synchronised, user should use lock when necvessary.
     virtual const std::vector<location_t> &get_neighbours(const location_t i) const = 0;
+    virtual const tsl::robin_set<location_t> &get_in_neighbours(const location_t i) const = 0;
     virtual void add_neighbour(const location_t i, location_t neighbour_id) = 0;
     virtual void clear_neighbours(const location_t i) = 0;
     virtual void swap_neighbours(const location_t a, location_t b) = 0;

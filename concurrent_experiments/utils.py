@@ -125,7 +125,8 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
         #('baseline_C4', 1.3, 64, 32, 128, 3, 6, 9, 64, 0.1),
 
         #('boundary_insert_test', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1), # mixed_throughput_cleann was measured here, mixed_throughput_consolidate
-        ('static_recompute', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        # ('static_recompute', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        ('reverse_freshvamana_naive_trial', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
     ]
     for setting in settings:
         setting_name, alpha, build_complexity, insert_complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob = setting

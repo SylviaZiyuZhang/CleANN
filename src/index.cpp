@@ -2963,6 +2963,80 @@ inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_map<uint32_t
     }
 }
 
+template <typename T, typename TagT, typename LabelT>
+inline void Index<T, TagT, LabelT>::process_delete_reverse_edge_naive(const tsl::robin_map<uint32_t, uint32_t> &old_delete_set, size_t deleted_loc,
+                                                   const uint32_t range, const uint32_t maxc, const float alpha)
+// deleted_loc is a deleted point
+{
+    size_t consolidate_prob = 20;
+    assert(old_delete_set.find((uint32_t)deleted_loc) != old_delete_set.end());
+    tsl::robin_set<uint32_t> in_neighbors = _graph_store->get_in_neighbours((location_t)deleted_loc);
+    std::vector<uint32_t> in_neighbors_copy = std::vector<uint32_t>({});
+    for (auto loc: in_neighbors) {
+        in_neighbors_copy.push_back(loc);
+    }
+    for (auto loc : in_neighbors_copy) {
+        ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+        auto scratch = manager.scratch_space();
+        tsl::robin_set<uint32_t> &expanded_nodes_set = scratch->expanded_nodes_set();
+        std::vector<Neighbor> &expanded_nghrs_vec = scratch->expanded_nodes_vec();
+        std::vector<uint32_t> adj_list;
+        {
+            // Acquire and release lock[loc] before acquiring locks for neighbors
+            std::unique_lock<non_recursive_mutex> adj_list_lock;
+            if (_conc_consolidate)
+                adj_list_lock = std::unique_lock<non_recursive_mutex>(_locks[loc]);
+            adj_list = _graph_store->get_neighbours((location_t)loc);
+        }
+
+        bool modify = false;
+        for (auto ngh : adj_list)
+        {
+            if (ngh != deleted_loc)
+            { // insert not deleted neighbor into expanded_nodes_set
+                expanded_nodes_set.insert(ngh);
+            }
+            else
+            {
+                modify = true;
+                // if (rand() % 100 > consolidate_prob) continue; // Skip absorbing this node
+                std::unique_lock<non_recursive_mutex> ngh_lock;
+                if (_conc_consolidate)
+                    ngh_lock = std::unique_lock<non_recursive_mutex>(_locks[ngh]);
+                for (auto j : _graph_store->get_neighbours((location_t)ngh))
+                    if (j != loc && j != deleted_loc)
+                        expanded_nodes_set.insert(j);
+            }
+        }
+
+        if (modify)
+        {
+            if (expanded_nodes_set.size() <= range)
+            {
+                std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
+                _graph_store->clear_neighbours((location_t)loc);
+                for (auto &ngh : expanded_nodes_set)
+                    _graph_store->add_neighbour((location_t)loc, ngh);
+            }
+            else
+            {
+                // Create a pool of Neighbor candidates from the expanded_nodes_set
+                expanded_nghrs_vec.reserve(expanded_nodes_set.size());
+                for (auto &ngh : expanded_nodes_set)
+                {
+                    expanded_nghrs_vec.emplace_back(ngh, _data_store->get_distance((location_t)loc, (location_t)ngh));
+                }
+                std::sort(expanded_nghrs_vec.begin(), expanded_nghrs_vec.end());
+                std::vector<uint32_t> &occlude_list_output = scratch->occlude_list_output();
+                occlude_list((uint32_t)loc, expanded_nghrs_vec, alpha, range, maxc, occlude_list_output, scratch, false,
+                            &old_delete_set);
+                std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
+                _graph_store->set_neighbours((location_t)loc, occlude_list_output);
+            }
+        }
+    }
+}
+
 
 template <typename T, typename TagT, typename LabelT>
 inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha)
@@ -3142,6 +3216,248 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes(const IndexWrit
                                 empty_slots_size, old_delete_set_size, delete_set_size, num_calls_to_process_delete,
                                 duration);
 }
+
+
+// Returns number of live points left after consolidation
+template <typename T, typename TagT, typename LabelT>
+consolidation_report Index<T, TagT, LabelT>::consolidate_deletes_reverse_edge_naive(const IndexWriteParameters &params)
+{
+    if (!_enable_tags)
+        throw diskann::ANNException("consolidate_deletes_reverse_edge_naive: Point tag array not instantiated", -1, __FUNCSIG__, __FILE__, __LINE__);
+
+    {
+        std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
+        std::shared_lock<std::shared_timed_mutex> tl(_tag_lock);
+        std::shared_lock<std::shared_timed_mutex> dl(_delete_lock);
+        if (_empty_slots.size() + _nd != _max_points)
+        {
+            std::string err = "consolidate_deletes_reverse_edge_naive: #empty slots + nd != max points";
+            diskann::cerr << err << std::endl;
+            throw ANNException(err, -1, __FUNCSIG__, __FILE__, __LINE__);
+        }
+
+        if (_location_to_tag.size() + _delete_set->size() != _nd)
+        {
+            diskann::cerr << "consolidate_deletes_reverse_edge_naive: Error: _location_to_tag.size (" << _location_to_tag.size() << ")  + _delete_set->size ("
+                          << _delete_set->size() << ") != _nd(" << _nd << ") ";
+            return consolidation_report(diskann::consolidation_report::status_code::INCONSISTENT_COUNT_ERROR, 0, 0, 0,
+                                        0, 0, 0, 0);
+        }
+
+        if (_location_to_tag.size() != _tag_to_location.size())
+        {
+            throw diskann::ANNException("consolidate_deletes_reverse_edge_naive: _location_to_tag and _tag_to_location not of same size", -1, __FUNCSIG__,
+                                        __FILE__, __LINE__);
+        }
+    }
+
+    std::unique_lock<std::shared_timed_mutex> update_lock(_update_lock, std::defer_lock);
+    if (!_conc_consolidate)
+        update_lock.lock();
+
+    std::unique_lock<std::shared_timed_mutex> cl(_consolidate_lock, std::defer_lock);
+    if (!cl.try_lock())
+    {
+        diskann::cerr << "consolidate_deletes_reverse_edge_naive: failed to acquire consolidate lock" << std::endl;
+        return consolidation_report(diskann::consolidation_report::status_code::LOCK_FAIL, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    diskann::cout << "Starting consolidate_deletes_reverse_edge_naive... ";
+    std::cout << "Starting consolidate_deletes_reverse_edge_naive..." << std::endl;
+
+    std::unique_ptr<tsl::robin_map<uint32_t, uint32_t>> old_delete_set(new tsl::robin_map<uint32_t, uint32_t>);
+    {
+        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+        std::swap(_delete_set, old_delete_set);
+    }
+
+    if (old_delete_set->find(_start) != old_delete_set->end())
+    {
+        throw diskann::ANNException("consolidate_deletes_reverse_edge_naive: ERROR: start node has been deleted", -1, __FUNCSIG__, __FILE__, __LINE__);
+    }
+
+    const uint32_t range = params.max_degree;
+    const uint32_t maxc = params.max_occlusion_size;
+    const float alpha = params.alpha;
+    const uint32_t num_threads = params.num_threads == 0 ? omp_get_num_procs() : params.num_threads;
+
+    diskann::cout << "consolidate_deletes_reverse_edge_naive using " << num_threads << "threads" << std::flush;
+
+    uint32_t num_calls_to_process_delete = 0;
+    diskann::Timer timer;
+#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 8) reduction(+ : num_calls_to_process_delete) // change 128 back to 8192
+    for (int64_t loc = 0; loc < (int64_t)_max_points; loc++)
+    {
+        if (old_delete_set->find((uint32_t)loc) != old_delete_set->end() && !_empty_slots.is_in_set((uint32_t)loc))
+        { // process each deleted node
+            process_delete_reverse_edge_naive(*old_delete_set, loc, range, maxc, alpha);
+            num_calls_to_process_delete += 1;
+        }
+    }
+    for (int64_t loc = _max_points; loc < (int64_t)(_max_points + _num_frozen_pts); loc++)
+    { // process each deleted node
+        if (old_delete_set->find((uint32_t)loc) != old_delete_set->end()) {
+            throw diskann::ANNException("consolidate_deletes_reverse_edge_naive ERROR: A frozen point has been deleted", -1, __FUNCSIG__, __FILE__, __LINE__);
+        }
+    }
+
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    size_t ret_nd = release_locations(*old_delete_set);
+    size_t max_points = _max_points;
+    size_t empty_slots_size = _empty_slots.size();
+
+    std::shared_lock<std::shared_timed_mutex> dl(_delete_lock);
+    size_t delete_set_size = _delete_set->size();
+    size_t old_delete_set_size = old_delete_set->size();
+
+    if (!_conc_consolidate)
+    {
+        update_lock.unlock();
+    }
+
+    double duration = timer.elapsed() / 1000000.0;
+    diskann::cout << " done in " << duration << " seconds." << std::endl;
+    return consolidation_report(diskann::consolidation_report::status_code::SUCCESS, ret_nd, max_points,
+                                empty_slots_size, old_delete_set_size, delete_set_size, num_calls_to_process_delete,
+                                duration);
+}
+
+// Returns number of live points left after consolidation
+template <typename T, typename TagT, typename LabelT>
+consolidation_report Index<T, TagT, LabelT>::consolidate_deletes_reverse_edge_gathered(const IndexWriteParameters &params)
+{
+    if (!_enable_tags)
+        throw diskann::ANNException("consolidate_deletes_reverse_edge_gathered: Point tag array not instantiated", -1, __FUNCSIG__, __FILE__, __LINE__);
+
+    {
+        std::shared_lock<std::shared_timed_mutex> ul(_update_lock);
+        std::shared_lock<std::shared_timed_mutex> tl(_tag_lock);
+        std::shared_lock<std::shared_timed_mutex> dl(_delete_lock);
+        if (_empty_slots.size() + _nd != _max_points)
+        {
+            std::string err = "consolidate_deletes_reverse_edge_gathered: #empty slots + nd != max points";
+            diskann::cerr << err << std::endl;
+            throw ANNException(err, -1, __FUNCSIG__, __FILE__, __LINE__);
+        }
+
+        if (_location_to_tag.size() + _delete_set->size() != _nd)
+        {
+            diskann::cerr << "consolidate_deletes_reverse_edge_gathered: Error: _location_to_tag.size (" << _location_to_tag.size() << ")  + _delete_set->size ("
+                          << _delete_set->size() << ") != _nd(" << _nd << ") ";
+            return consolidation_report(diskann::consolidation_report::status_code::INCONSISTENT_COUNT_ERROR, 0, 0, 0,
+                                        0, 0, 0, 0);
+        }
+
+        if (_location_to_tag.size() != _tag_to_location.size())
+        {
+            throw diskann::ANNException("consolidate_deletes_reverse_edge_gathered: _location_to_tag and _tag_to_location not of same size", -1, __FUNCSIG__,
+                                        __FILE__, __LINE__);
+        }
+    }
+
+    std::unique_lock<std::shared_timed_mutex> update_lock(_update_lock, std::defer_lock);
+    if (!_conc_consolidate)
+        update_lock.lock();
+
+    std::unique_lock<std::shared_timed_mutex> cl(_consolidate_lock, std::defer_lock);
+    if (!cl.try_lock())
+    {
+        diskann::cerr << "consolidate_deletes_reverse_edge_naive: failed to acquire consolidate lock" << std::endl;
+        return consolidation_report(diskann::consolidation_report::status_code::LOCK_FAIL, 0, 0, 0, 0, 0, 0, 0);
+    }
+
+    diskann::cout << "Starting consolidate_deletes_reverse_edge_gathered... ";
+    std::cout << "Starting consolidate_deletes_reverse_edge_gathered..." << std::endl;
+
+    std::unique_ptr<tsl::robin_map<uint32_t, uint32_t>> old_delete_set(new tsl::robin_map<uint32_t, uint32_t>);
+    {
+        std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
+        std::swap(_delete_set, old_delete_set);
+    }
+
+    if (old_delete_set->find(_start) != old_delete_set->end())
+    {
+        throw diskann::ANNException("consolidate_deletes_reverse_edge_gathered: ERROR: start node has been deleted", -1, __FUNCSIG__, __FILE__, __LINE__);
+    }
+
+    const uint32_t range = params.max_degree;
+    const uint32_t maxc = params.max_occlusion_size;
+    const float alpha = params.alpha;
+    const uint32_t num_threads = params.num_threads == 0 ? omp_get_num_procs() : params.num_threads;
+
+    uint32_t num_calls_to_process_delete = 0;
+    uint32_t num_calls_to_gather_parents = 0;
+    diskann::Timer timer;
+    non_recursive_mutex map_lock;
+    tsl::robin_map<uint32_t, std::vector<uint32_t>> consolidate_targets;
+    std::vector<uint32_t> deleted_loc_array;
+    for (auto loc : old_delete_set)
+        deleted_loc_array.push_back(loc);
+    size_t n_deleted = deleted_loc_array.size();
+#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 8) reduction(+ : num_calls_to_gather_parents)
+    for (size_t deleted_idx = 0; deleted_idx < n_deleted; deleted_idx++)
+    {
+        uint32_t deleted_loc = deleted_loc_array[deleted_idx];
+        tsl::robin_set<uint32_t> in_neighbors = _graph_store->get_in_neighbours(deleted_loc);
+        for (auto in_nb : in_neighbors) {
+            map_lock.lock();
+            if (consolidate_targets.find(in_nb) != consolidate_targets.end()) {
+                consolidate_targets[in_nb].push_back(deleted_loc);
+            } else {
+                consolidate_targets[in_nb] = std::vector<uint32_t>({deleted_loc});
+            }
+            map_lock.unlock();
+        }
+    }
+    std::vector<uint32_t> consolidate_sources;
+    std::vector<std::vector<uint32_t>> consolidate_ends;
+    for (auto it : consolidate_targets) {
+        consolidate_sources.push_back(it.first);
+        consolidate_ends.push_back(it.second);
+    }
+    size_t n_consolidate_tasks = consolidate_sources.size();
+    if (consolidate_sources.size() != consolidate_ends.size()) {
+        throw diskann::ANNException("consolidate_deletes_reverse_edge_gathered: unzipped consolidate_targets sizes do not match", -1, __FUNCSIG__,
+                                    __FILE__, __LINE__);
+    }
+    // TODO (SylviaZiyuZhang): Finish this
+#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 8) reduction(+ : num_calls_to_process_delete)
+    for (int64_t loc = 0; loc < (int64_t)_max_points; loc++)
+    {
+        if (old_delete_set->find((uint32_t)loc) != old_delete_set->end() && !_empty_slots.is_in_set((uint32_t)loc))
+        { // process each deleted node
+            process_delete_reverse_edge_naive(*old_delete_set, loc, range, maxc, alpha);
+            num_calls_to_process_delete += 1;
+        }
+    }
+    for (int64_t loc = _max_points; loc < (int64_t)(_max_points + _num_frozen_pts); loc++)
+    { // process each deleted node
+        if (old_delete_set->find((uint32_t)loc) != old_delete_set->end()) {
+            throw diskann::ANNException("ERROR: A frozen point has been deleted", -1, __FUNCSIG__, __FILE__, __LINE__);
+        }
+    }
+
+    std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
+    size_t ret_nd = release_locations(*old_delete_set);
+    size_t max_points = _max_points;
+    size_t empty_slots_size = _empty_slots.size();
+
+    std::shared_lock<std::shared_timed_mutex> dl(_delete_lock);
+    size_t delete_set_size = _delete_set->size();
+    size_t old_delete_set_size = old_delete_set->size();
+
+    if (!_conc_consolidate)
+    {
+        update_lock.unlock();
+    }
+
+    double duration = timer.elapsed() / 1000000.0;
+    diskann::cout << " done in " << duration << " seconds." << std::endl;
+    return consolidation_report(diskann::consolidation_report::status_code::SUCCESS, ret_nd, max_points,
+                                empty_slots_size, old_delete_set_size, delete_set_size, num_calls_to_process_delete,
+                                duration);
+}
+
 
 template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT>::compact_frozen_point()
 {

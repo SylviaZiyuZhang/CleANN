@@ -35,6 +35,11 @@ const std::vector<location_t> &InMemGraphStore::get_neighbours(const location_t 
     return _graph.at(i);
 }
 
+const tsl::robin_set<location_t> &InMemGraphStore::get_in_neighbours(const location_t i) const {
+    // TODO (SylviaZiyuZhang): look into whether a copy is needed here
+    return _reverse_graph.at(i);
+}
+
 void InMemGraphStore::add_neighbour(const location_t i, location_t neighbour_id)
 {
     _graph[i].emplace_back(neighbour_id);

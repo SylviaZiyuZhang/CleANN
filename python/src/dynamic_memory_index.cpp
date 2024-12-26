@@ -209,6 +209,11 @@ template <class DT> void DynamicMemoryIndex<DT>::consolidate_delete()
     _index.consolidate_deletes(_write_parameters);
 }
 
+template <class DT> void DynamicMemoryIndex<DT>::consolidate_deletes_reverse_edge_naive()
+{
+    _index.consolidate_deletes_reverse_edge_naive(_write_parameters);
+}
+
 template <class DT> size_t DynamicMemoryIndex<DT>::num_points()
 {
     return _index.get_num_points();
