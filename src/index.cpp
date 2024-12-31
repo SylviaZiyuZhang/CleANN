@@ -2968,7 +2968,7 @@ inline void Index<T, TagT, LabelT>::process_delete_reverse_edge_naive(const tsl:
                                                    const uint32_t range, const uint32_t maxc, const float alpha)
 // deleted_loc is a deleted point
 {
-    size_t consolidate_prob = 20;
+    size_t consolidate_prob = 10;
     assert(old_delete_set.find((uint32_t)deleted_loc) != old_delete_set.end());
     tsl::robin_set<uint32_t> in_neighbors = _graph_store->get_in_neighbours((location_t)deleted_loc);
     std::vector<uint32_t> in_neighbors_copy = std::vector<uint32_t>({});
@@ -3037,6 +3037,67 @@ inline void Index<T, TagT, LabelT>::process_delete_reverse_edge_naive(const tsl:
     }
 }
 
+template <typename T, typename TagT, typename LabelT>
+inline void Index<T, TagT, LabelT>::process_delete_reverse_edge_gathered(const tsl::robin_map<uint32_t, uint32_t> &old_delete_set, size_t loc, const std::vector<uint32_t>& targets,
+                                                   const uint32_t range, const uint32_t maxc, const float alpha,
+                                                   InMemQueryScratch<T> *scratch)
+// deleted_loc is a deleted point
+{
+    tsl::robin_set<uint32_t> &expanded_nodes_set = scratch->expanded_nodes_set();
+    std::vector<Neighbor> &expanded_nghrs_vec = scratch->expanded_nodes_vec();
+
+    assert(old_delete_set.find((uint32_t)loc) == old_delete_set.end());
+    std::vector<uint32_t> adj_list;
+    {
+        // Acquire and release lock[loc] before acquiring locks for neighbors
+        std::unique_lock<non_recursive_mutex> adj_list_lock;
+        if (_conc_consolidate)
+            adj_list_lock = std::unique_lock<non_recursive_mutex>(_locks[loc]);
+        adj_list = _graph_store->get_neighbours((location_t)loc);
+    }
+
+    size_t n_live_nb = 0;
+    for (auto ngh : adj_list)
+    {
+        if (old_delete_set.find(ngh) == old_delete_set.end())
+        { // insert not deleted neighbor into expanded_nodes_set
+            expanded_nodes_set.insert(ngh);
+            n_live_nb ++;
+        }
+    }
+
+    for (auto deleted_nb: targets) {
+        std::unique_lock<non_recursive_mutex> deleted_nb_lock;
+        if (_conc_consolidate)
+            deleted_nb_lock = std::unique_lock<non_recursive_mutex>(_locks[deleted_nb]);
+        for (auto j : _graph_store->get_neighbours((location_t)deleted_nb))
+                if (j != loc && old_delete_set.find(j) == old_delete_set.end())
+                    expanded_nodes_set.insert(j);
+    }
+
+    if (expanded_nodes_set.size() <= range)
+    {
+        std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
+        _graph_store->clear_neighbours((location_t)loc);
+        for (auto &ngh : expanded_nodes_set)
+            _graph_store->add_neighbour((location_t)loc, ngh);
+    }
+    else
+    {
+        // Create a pool of Neighbor candidates from the expanded_nodes_set
+        expanded_nghrs_vec.reserve(expanded_nodes_set.size());
+        for (auto &ngh : expanded_nodes_set)
+        {
+            expanded_nghrs_vec.emplace_back(ngh, _data_store->get_distance((location_t)loc, (location_t)ngh));
+        }
+        std::sort(expanded_nghrs_vec.begin(), expanded_nghrs_vec.end());
+        std::vector<uint32_t> &occlude_list_output = scratch->occlude_list_output();
+        occlude_list((uint32_t)loc, expanded_nghrs_vec, alpha, range, maxc, occlude_list_output, scratch, false,
+                        &old_delete_set);
+        std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
+        _graph_store->set_neighbours((location_t)loc, occlude_list_output);
+    }
+}
 
 template <typename T, typename TagT, typename LabelT>
 inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha)
@@ -3285,7 +3346,7 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes_reverse_edge_na
 
     uint32_t num_calls_to_process_delete = 0;
     diskann::Timer timer;
-#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 8) reduction(+ : num_calls_to_process_delete) // change 128 back to 8192
+#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 16) reduction(+ : num_calls_to_process_delete) // change 128 back to 8192
     for (int64_t loc = 0; loc < (int64_t)_max_points; loc++)
     {
         if (old_delete_set->find((uint32_t)loc) != old_delete_set->end() && !_empty_slots.is_in_set((uint32_t)loc))
@@ -3383,7 +3444,9 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes_reverse_edge_ga
     const uint32_t range = params.max_degree;
     const uint32_t maxc = params.max_occlusion_size;
     const float alpha = params.alpha;
-    const uint32_t num_threads = params.num_threads == 0 ? omp_get_num_procs() : params.num_threads;
+    // const uint32_t num_threads = params.num_threads == 0 ? omp_get_num_procs() : params.num_threads;
+    const uint32_t num_threads = 28;
+    size_t consolidate_prob = 20;
 
     uint32_t num_calls_to_process_delete = 0;
     uint32_t num_calls_to_gather_parents = 0;
@@ -3391,22 +3454,28 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes_reverse_edge_ga
     non_recursive_mutex map_lock;
     tsl::robin_map<uint32_t, std::vector<uint32_t>> consolidate_targets;
     std::vector<uint32_t> deleted_loc_array;
-    for (auto loc : old_delete_set)
-        deleted_loc_array.push_back(loc);
+    for (auto loc : *old_delete_set)
+        deleted_loc_array.push_back(loc.first);
     size_t n_deleted = deleted_loc_array.size();
-#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 8) reduction(+ : num_calls_to_gather_parents)
+#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 1024) reduction(+ : num_calls_to_gather_parents)
     for (size_t deleted_idx = 0; deleted_idx < n_deleted; deleted_idx++)
     {
         uint32_t deleted_loc = deleted_loc_array[deleted_idx];
+        if (deleted_loc >= _max_points) {
+            throw diskann::ANNException("consolidate_deletes_gathered ERROR: A frozen point has been deleted", -1, __FUNCSIG__, __FILE__, __LINE__);
+        }
         tsl::robin_set<uint32_t> in_neighbors = _graph_store->get_in_neighbours(deleted_loc);
         for (auto in_nb : in_neighbors) {
-            map_lock.lock();
-            if (consolidate_targets.find(in_nb) != consolidate_targets.end()) {
-                consolidate_targets[in_nb].push_back(deleted_loc);
-            } else {
-                consolidate_targets[in_nb] = std::vector<uint32_t>({deleted_loc});
+            if (rand() % 100 > consolidate_prob) continue; // proceed with a probability
+            if (old_delete_set->find(in_nb) == old_delete_set->end()) { // in_nb is a live parent
+                map_lock.lock();
+                if (consolidate_targets.find(in_nb) != consolidate_targets.end()) {
+                    consolidate_targets[in_nb].push_back(deleted_loc);
+                } else {
+                    consolidate_targets[in_nb] = std::vector<uint32_t>({deleted_loc});
+                }
+                map_lock.unlock();
             }
-            map_lock.unlock();
         }
     }
     std::vector<uint32_t> consolidate_sources;
@@ -3420,20 +3489,19 @@ consolidation_report Index<T, TagT, LabelT>::consolidate_deletes_reverse_edge_ga
         throw diskann::ANNException("consolidate_deletes_reverse_edge_gathered: unzipped consolidate_targets sizes do not match", -1, __FUNCSIG__,
                                     __FILE__, __LINE__);
     }
-    // TODO (SylviaZiyuZhang): Finish this
-#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 8) reduction(+ : num_calls_to_process_delete)
-    for (int64_t loc = 0; loc < (int64_t)_max_points; loc++)
+    diskann::cout << "Finished getting consolidate_targets..." << std::endl;
+
+#pragma omp parallel for num_threads(num_threads) schedule(dynamic, 1024) reduction(+ : num_calls_to_process_delete)
+    for (size_t idx = 0; idx < n_consolidate_tasks; idx++)
     {
-        if (old_delete_set->find((uint32_t)loc) != old_delete_set->end() && !_empty_slots.is_in_set((uint32_t)loc))
+        uint32_t loc = consolidate_sources[idx];
+        auto targets = consolidate_ends[idx];
+        if (old_delete_set->find((uint32_t)loc) == old_delete_set->end())
         { // process each deleted node
-            process_delete_reverse_edge_naive(*old_delete_set, loc, range, maxc, alpha);
+            ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+            auto scratch = manager.scratch_space();
+            process_delete_reverse_edge_gathered(*old_delete_set, loc, targets, range, maxc, alpha, scratch);
             num_calls_to_process_delete += 1;
-        }
-    }
-    for (int64_t loc = _max_points; loc < (int64_t)(_max_points + _num_frozen_pts); loc++)
-    { // process each deleted node
-        if (old_delete_set->find((uint32_t)loc) != old_delete_set->end()) {
-            throw diskann::ANNException("ERROR: A frozen point has been deleted", -1, __FUNCSIG__, __FILE__, __LINE__);
         }
     }
 

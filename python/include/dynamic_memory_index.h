@@ -50,6 +50,7 @@ class DynamicMemoryIndex
                                             uint32_t num_threads);
     void consolidate_delete();
     void consolidate_deletes_reverse_edge_naive();
+    void consolidate_deletes_reverse_edge_gathered();
     size_t num_points();
     void print_status();
 
