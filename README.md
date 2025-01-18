@@ -60,7 +60,7 @@ For the current manuscript, we conducted experiments on 7 datasets of different 
 | SpaceV | Microsoft | Euclidean | 10k - 10M | float | Web Search | ✅ |
 | Yandex-tti | Yandex | MIPS | 10k - 1M | float | Text-to-Image | ❌ |
 
-* [RedCaps](https://zenodo.org/records/13137120) was embedded with CLIP and [HuffPost](https://zenodo.org/records/13137331) was embedded with OpenAI's text-embedding-3 API. Both are sorted in timestamp to represent a realistic distribution shift. We linked the curated versions above.
+* [RedCaps](https://zenodo.org/records/13137120) was embedded with CLIP and [HuffPost](https://zenodo.org/records/13137331) was embedded with OpenAI's text-embedding-3 API. Both are sorted in timestamp to represent a realistic distribution shift.
 * The script for generating Adversarial can be found in `concurrent_experiments/adversarial-dataset-gen.py`.
 
 # Paper
@@ -86,5 +86,4 @@ This repository is the artifact for the manuscript CleANN: Efficient Full Dynami
 
 
 # Acknowledgement
-* Some utility code comes from [Josh's fork](https://github.com/JoshEngels/ConcurrentANN)
-
+Redacted during the review period for anonymity purposes.
