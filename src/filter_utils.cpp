@@ -28,7 +28,7 @@ void generate_label_indices(path input_data_path, path final_index_path_prefix, 
                             uint32_t L, float alpha, uint32_t num_threads)
 {
     // TODO (SylviaZiyuZhang): Fix bridge algorithm for filter version
-    diskann::IndexWriteParameters label_index_build_parameters = diskann::IndexWriteParametersBuilder(L, L, R, 1, 2, 3, 4, 0.0)
+    diskann::IndexWriteParameters label_index_build_parameters = diskann::IndexWriteParametersBuilder(L, L, R, 1, 2, 3, 4, 0.0, 3)
                                                                      .with_saturate_graph(false)
                                                                      .with_alpha(alpha)
                                                                      .with_num_threads(num_threads)

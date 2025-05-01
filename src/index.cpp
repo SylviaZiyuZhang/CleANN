@@ -126,6 +126,7 @@ Index<T, TagT, LabelT>::Index(const IndexConfig &index_config, std::unique_ptr<A
         _bridgeEndLb = index_config.index_write_params->bridge_end_lb;
         _bridgeEndHb = index_config.index_write_params->bridge_end_hb;
         _bridgeProb = index_config.index_write_params->bridge_prob;
+        _cleaningThreshold = index_config.index_write_params->cleaning_threshold;
         diskann::cout << "Initializing with bridge probability " << _bridgeProb << std::endl;
         _indexingRange = index_config.index_write_params->max_degree;
         _indexingMaxC = index_config.index_write_params->max_occlusion_size;
@@ -1082,7 +1083,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             copy_of_neighbors.assign(neighbors.begin(), neighbors.end());
             #if MEMORY_COLLECTION
             _tombstone_state_locks[n].lock();
-            if (_graph_store->get_num_consolidates(n) >= 7) {
+            if (_graph_store->is_tombstoned(n) && _graph_store->get_num_consolidates(n) >= _cleaningThreshold) { // Beware of signed vs unsigned here
                 {
                     std::unique_lock<std::shared_timed_mutex> dl(_delete_lock);
                     _graph_store->mark_live(n);
@@ -1752,7 +1753,6 @@ template <typename T, typename TagT, typename LabelT> void Index<T, TagT, LabelT
     for (int64_t node_ctr = 0; node_ctr < (int64_t)(visit_order.size()); node_ctr++)
     {
         auto node = visit_order[node_ctr];
-        // diskann::cout << "Visiting node " << node << std::endl;
 
         // Find and add appropriate graph edges
         ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
@@ -2993,7 +2993,7 @@ inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t ra
             expanded_nodes_set.insert(ngh);
             _tombstone_state_locks[ngh].unlock();
         }
-        else if (ngh_hits < 7) // PREMATURE FREE: does not consolidate anymore after enough hits, avoids deadlock with freeing
+        else if (ngh_hits < _cleaningThreshold) // PREMATURE FREE: does not consolidate anymore after enough hits, avoids deadlock with freeing
         {
             modify = true;
             _graph_store->record_consolidate(ngh);

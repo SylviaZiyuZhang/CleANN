@@ -47,13 +47,13 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
 {
     m.def(variant.disk_builder_name.c_str(), &diskannpy::build_disk_index<T>, "distance_metric"_a, "data_file_path"_a,
           "index_prefix_path"_a, "complexity"_a, "insert_complexity"_a, "graph_degree"_a,
-          "bridge_start_lb"_a, "bridge_start_hb"_a, "bridge_end_lb"_a, "bridge_end_hb"_a, "bridge_prob"_a,
+          "bridge_start_lb"_a, "bridge_start_hb"_a, "bridge_end_lb"_a, "bridge_end_hb"_a, "bridge_prob"_a, "cleaning_threshold"_a,
           "final_index_ram_limit"_a, "indexing_ram_budget"_a,
           "num_threads"_a, "pq_disk_bytes"_a);
 
     m.def(variant.memory_builder_name.c_str(), &diskannpy::build_memory_index<T>, "distance_metric"_a,
           "data_file_path"_a, "index_output_path"_a, "graph_degree"_a, "complexity"_a, "insert_complexity"_a, "alpha"_a, "num_threads"_a,
-          "bridge_start_lb"_a, "bridge_start_hb"_a, "bridge_end_lb"_a, "bridge_end_hb"_a, "bridge_prob"_a,
+          "bridge_start_lb"_a, "bridge_start_hb"_a, "bridge_end_lb"_a, "bridge_end_hb"_a, "bridge_prob"_a, "cleaning_threshold"_a,
           "use_pq_build"_a, "num_pq_bytes"_a, "use_opq"_a, "use_tags"_a = false, "filter_labels_file"_a = "",
           "universal_label"_a = "", "filter_complexity"_a = 0);
 
@@ -70,12 +70,12 @@ template <typename T> inline void add_variant(py::module_ &m, const Variant &var
 
     py::class_<diskannpy::DynamicMemoryIndex<T>>(m, variant.dynamic_memory_index_name.c_str())
         .def(py::init<const diskann::Metric, const size_t, const size_t, const uint32_t, const uint32_t, const uint32_t,
-                      const uint32_t, const uint32_t, const uint32_t, const uint32_t, const float,
+                      const uint32_t, const uint32_t, const uint32_t, const uint32_t, const float, const uint32_t,
                       const bool,
                       const uint32_t, const float, const uint32_t, const uint32_t, const uint32_t, const uint32_t,
                       const uint32_t, const bool>(),
              "distance_metric"_a, "dimensions"_a, "max_vectors"_a, "complexity"_a, "insert_complexity"_a, "graph_degree"_a,
-             "bridge_start_lb"_a, "bridge_start_hb"_a, "bridge_end_lb"_a, "bridge_end_hb"_a, "bridge_prob"_a,
+             "bridge_start_lb"_a, "bridge_start_hb"_a, "bridge_end_lb"_a, "bridge_end_hb"_a, "bridge_prob"_a, "cleaning_threshold"_a,
              "saturate_graph"_a = diskann::defaults::SATURATE_GRAPH,
              "max_occlusion_size"_a = diskann::defaults::MAX_OCCLUSION_SIZE, "alpha"_a = diskann::defaults::ALPHA,
              "num_threads"_a = diskann::defaults::NUM_THREADS,

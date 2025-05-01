@@ -420,6 +420,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
     uint32_t _bridgeEndLb;
     uint32_t _bridgeEndHb;
     float _bridgeProb;
+    uint32_t _cleaningThreshold;
 
     // Query scratch data structures
     ConcurrentQueue<InMemQueryScratch<T> *> _query_scratch;

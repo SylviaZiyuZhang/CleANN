@@ -37,6 +37,7 @@ def build_random_vectors_and_memory_index(
         bridge_end_lb=9,
         bridge_end_hb=100,
         bridge_prob=0.5,
+        cleaning_threshold=3,
         num_threads=0,
         use_pq_build=False,
         num_pq_bytes=8,

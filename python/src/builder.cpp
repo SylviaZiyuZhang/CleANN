@@ -12,12 +12,12 @@ namespace diskannpy
 template <typename DT>
 void build_disk_index(const diskann::Metric metric, const std::string &data_file_path,
                       const std::string &index_prefix_path, const uint32_t complexity, const uint32_t insert_complexity, const uint32_t graph_degree,
-                      const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob,
+                      const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob, const uint32_t cleaning_threshold,
                       const double final_index_ram_limit, const double indexing_ram_budget, const uint32_t num_threads,
                       const uint32_t pq_disk_bytes)
 {
     std::string params = std::to_string(graph_degree) + " " + std::to_string(complexity) + " " + std::to_string(insert_complexity) + " " +
-                         std::to_string(bridge_start_lb) + " " + std::to_string(bridge_start_hb) + " " + std::to_string(bridge_end_lb) + " " + std::to_string(bridge_end_hb) + " " + std::to_string(bridge_prob) + " " +
+                         std::to_string(bridge_start_lb) + " " + std::to_string(bridge_start_hb) + " " + std::to_string(bridge_end_lb) + " " + std::to_string(bridge_end_hb) + " " + std::to_string(bridge_prob) + " " + std::to_string(cleaning_threshold) + " " +
                          std::to_string(final_index_ram_limit) + " " + std::to_string(indexing_ram_budget) + " " +
                          std::to_string(num_threads);
     if (pq_disk_bytes > 0)
@@ -26,14 +26,14 @@ void build_disk_index(const diskann::Metric metric, const std::string &data_file
 }
 
 template void build_disk_index<float>(diskann::Metric, const std::string &, const std::string &, uint32_t, uint32_t, uint32_t,
-                                      uint32_t, uint32_t, uint32_t, uint32_t, float,
+                                      uint32_t, uint32_t, uint32_t, uint32_t, float, uint32_t,
                                       double, double, uint32_t, uint32_t);
 
 template void build_disk_index<uint8_t>(diskann::Metric, const std::string &, const std::string &, uint32_t, uint32_t, uint32_t,
-                                        uint32_t, uint32_t, uint32_t, uint32_t, float,
+                                        uint32_t, uint32_t, uint32_t, uint32_t, float, uint32_t,
                                         double, double, uint32_t, uint32_t);
 template void build_disk_index<int8_t>(diskann::Metric, const std::string &, const std::string &, uint32_t, uint32_t, uint32_t,
-                                       uint32_t, uint32_t, uint32_t, uint32_t, float,
+                                       uint32_t, uint32_t, uint32_t, uint32_t, float, uint32_t,
                                        double, double, uint32_t, uint32_t);
 
 template <typename T, typename TagT, typename LabelT>
@@ -64,13 +64,13 @@ template <typename T, typename TagT, typename LabelT>
 void build_memory_index(const diskann::Metric metric, const std::string &vector_bin_path,
                         const std::string &index_output_path, const uint32_t graph_degree, const uint32_t complexity, const uint32_t insert_complexity,
                         const float alpha, 
-                        const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob,
+                        const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob, const uint32_t cleaning_threshold,
                         const uint32_t num_threads, const bool use_pq_build,
                         const size_t num_pq_bytes, const bool use_opq, const bool use_tags,
                         const std::string &filter_labels_file, const std::string &universal_label,
                         const uint32_t filter_complexity)
 {
-    diskann::IndexWriteParameters index_build_params = diskann::IndexWriteParametersBuilder(complexity, insert_complexity, graph_degree, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob)
+    diskann::IndexWriteParameters index_build_params = diskann::IndexWriteParametersBuilder(complexity, insert_complexity, graph_degree, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob, cleaning_threshold)
                                                            .with_filter_list_size(filter_complexity)
                                                            .with_alpha(alpha)
                                                            .with_saturate_graph(false)
@@ -127,19 +127,19 @@ void build_memory_index(const diskann::Metric metric, const std::string &vector_
 
 template void build_memory_index<float>(diskann::Metric, const std::string &, const std::string &, uint32_t, uint32_t, uint32_t,
                                         float,
-                                        uint32_t, uint32_t, uint32_t, uint32_t, float,
+                                        uint32_t, uint32_t, uint32_t, uint32_t, float, uint32_t,
                                         uint32_t, bool, size_t, bool, bool, const std::string &,
                                         const std::string &, uint32_t);
 
 template void build_memory_index<int8_t>(diskann::Metric, const std::string &, const std::string &, uint32_t, uint32_t, uint32_t,
                                          float,
-                                         uint32_t, uint32_t, uint32_t, uint32_t, float,
+                                         uint32_t, uint32_t, uint32_t, uint32_t, float, uint32_t,
                                          uint32_t, bool, size_t, bool, bool, const std::string &,
                                          const std::string &, uint32_t);
 
 template void build_memory_index<uint8_t>(diskann::Metric, const std::string &, const std::string &, uint32_t, uint32_t, uint32_t,
                                           float,
-                                          uint32_t, uint32_t, uint32_t, uint32_t, float,
+                                          uint32_t, uint32_t, uint32_t, uint32_t, float, uint32_t,
                                           uint32_t, bool, size_t, bool, bool, const std::string &,
                                           const std::string &, uint32_t);
 

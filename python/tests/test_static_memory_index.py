@@ -213,6 +213,7 @@ class TestStaticMemoryIndex(unittest.TestCase):
                 bridge_end_lb=9,
                 bridge_end_hb=100,
                 bridge_prob=0.5,
+                cleaning_threshold=16,
                 num_threads=0,
             )
             index = dap.StaticMemoryIndex(
@@ -254,6 +255,7 @@ class TestFilteredStaticMemoryIndex(unittest.TestCase):
                 bridge_end_lb=9,
                 bridge_end_hb=100,
                 bridge_prob=0.5,
+                cleaning_threshold=32,
                 num_threads=16,
                 filter_labels=labels,
                 universal_label="all",
@@ -307,6 +309,7 @@ class TestFilteredStaticMemoryIndex(unittest.TestCase):
                 bridge_end_lb=9,
                 bridge_end_hb=100,
                 bridge_prob=0.5,
+                cleaning_threshold=32,
                 num_threads=16,
                 filter_labels=labels,
                 universal_label="",

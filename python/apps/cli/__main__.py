@@ -103,6 +103,7 @@ def static(
             bridge_end_lb=9,
             bridge_end_hb=64,
             bridge_prob=0.5,
+            cleaning_threshold=graph_degree,
             use_pq_build=False,
             num_pq_bytes=8,
             use_opq=False,

@@ -14,11 +14,11 @@ namespace diskannpy
 diskann::IndexWriteParameters dynamic_index_write_parameters(const uint32_t complexity, const uint32_t insert_complexity, const uint32_t graph_degree,
                                                              const bool saturate_graph,
                                                              const uint32_t max_occlusion_size, const float alpha,
-                                                             const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, float bridge_prob,
+                                                             const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob, const uint32_t cleaning_threshold,
                                                              const uint32_t num_threads,
                                                              const uint32_t filter_complexity)
 {
-    return diskann::IndexWriteParametersBuilder(complexity, insert_complexity, graph_degree, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob)
+    return diskann::IndexWriteParametersBuilder(complexity, insert_complexity, graph_degree, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob, cleaning_threshold)
         .with_saturate_graph(saturate_graph)
         .with_max_occlusion_size(max_occlusion_size)
         .with_alpha(alpha)
@@ -52,7 +52,7 @@ diskann::Index<DT, DynamicIdType, filterT> dynamic_index_builder(
 template <class DT>
 DynamicMemoryIndex<DT>::DynamicMemoryIndex(const diskann::Metric m, const size_t dimensions, const size_t max_vectors,
                                            const uint32_t complexity, const uint32_t insert_complexity, const uint32_t graph_degree,
-                                           const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob,
+                                           const uint32_t bridge_start_lb, const uint32_t bridge_start_hb, const uint32_t bridge_end_lb, const uint32_t bridge_end_hb, const float bridge_prob, const uint32_t cleaning_threshold,
                                            const bool saturate_graph, const uint32_t max_occlusion_size,
                                            const float alpha,
                                            const uint32_t num_threads,
@@ -61,7 +61,7 @@ DynamicMemoryIndex<DT>::DynamicMemoryIndex(const diskann::Metric m, const size_t
                                            const uint32_t initial_search_threads, const bool concurrent_consolidation)
     : _initial_search_complexity(initial_search_complexity != 0 ? initial_search_complexity : complexity),
       _write_parameters(dynamic_index_write_parameters(complexity, insert_complexity, graph_degree, saturate_graph, max_occlusion_size,
-                                                       alpha, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob, num_threads, filter_complexity)),
+                                                       alpha, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob, cleaning_threshold, num_threads, filter_complexity)),
       _index(dynamic_index_builder<DT>(m, _write_parameters, dimensions, max_vectors, _initial_search_complexity,
                                        initial_search_threads, concurrent_consolidation, num_frozen_points))
 {

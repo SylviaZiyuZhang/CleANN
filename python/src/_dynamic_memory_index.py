@@ -64,6 +64,7 @@ class DynamicMemoryIndex:
         bridge_end_lb: int,
         bridge_end_hb: int,
         bridge_prob: float,
+        cleaning_threshold: int,
         saturate_graph: bool = defaults.SATURATE_GRAPH,
         max_occlusion_size: int = defaults.MAX_OCCLUSION_SIZE,
         alpha: float = defaults.ALPHA,
@@ -166,6 +167,7 @@ class DynamicMemoryIndex:
             bridge_end_lb=bridge_end_lb,
             bridge_end_hb=bridge_end_hb,
             bridge_prob=bridge_prob,
+            cleaning_threshold=cleaning_threshold,
             saturate_graph=saturate_graph,
             max_occlusion_size=max_occlusion_size,
             alpha=alpha,
@@ -194,6 +196,7 @@ class DynamicMemoryIndex:
         bridge_end_lb: int,
         bridge_end_hb: int,
         bridge_prob: float,
+        cleaning_threshold: int,
         saturate_graph: bool = defaults.SATURATE_GRAPH,
         max_occlusion_size: int = defaults.MAX_OCCLUSION_SIZE,
         alpha: float = defaults.ALPHA,
@@ -279,6 +282,7 @@ class DynamicMemoryIndex:
         self._bridge_end_lb = bridge_end_lb
         self._bridge_end_hb = bridge_end_hb
         self._bridge_prob = bridge_prob
+        self._cleaning_threshold = cleaning_threshold
 
         if vector_dtype == np.uint8:
             _index = _native_dap.DynamicMemoryUInt8Index
@@ -298,6 +302,7 @@ class DynamicMemoryIndex:
             bridge_end_lb=bridge_end_lb,
             bridge_end_hb=bridge_end_hb,
             bridge_prob=bridge_prob,
+            cleaning_threshold=cleaning_threshold,
             graph_degree=graph_degree,
             saturate_graph=saturate_graph,
             max_occlusion_size=max_occlusion_size,

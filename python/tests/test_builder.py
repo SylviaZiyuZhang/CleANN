@@ -87,6 +87,7 @@ class TestBuildMemoryIndex(unittest.TestCase):
                 bridge_end_lb=9,
                 bridge_end_hb=100,
                 bridge_prob=0.5,
+                cleaning_threshold=5,
                 num_threads=1,
                 use_pq_build=False,
                 num_pq_bytes=0,
@@ -108,6 +109,7 @@ class TestBuildMemoryIndex(unittest.TestCase):
                 bridge_end_lb=9,
                 bridge_end_hb=100,
                 bridge_prob=0.5,
+                cleaning_threshold=5,
                 num_threads=1,
                 use_pq_build=False,
                 num_pq_bytes=0,
@@ -127,6 +129,7 @@ class TestBuildMemoryIndex(unittest.TestCase):
             "bridge_end_lb": 9,
             "bridge_end_hb": 100,
             "bridge_prob": 0.5,
+            "cleaning_threshold": 5,
             "num_threads": 1,
             "num_pq_bytes": 0,
         }
@@ -142,6 +145,7 @@ class TestBuildMemoryIndex(unittest.TestCase):
             "bridge_end_lb": -9,
             "bridge_end_hb": -100,
             "bridge_prob": -0.5,
+            "cleaning_threshold": -1,
             "num_threads": 1,
             "num_pq_bytes": -60,
         }
