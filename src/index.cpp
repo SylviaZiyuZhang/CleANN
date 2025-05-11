@@ -31,13 +31,10 @@
 
 #define MAX_POINTS_FOR_USING_BITSET 10000000
 
-#define INSERT_FIXES_DELETES false
-#define SEARCH_FIXES_DELETES false
-#define COMPLICATED_DYNAMIC_DELETE false
-#define FIXES_DELETES_LOWER_LAYER false
-#define LAYER_BASED_PATH_COMPRESSION false
-#define MEMORY_COLLECTION false
-#define ITERATION_SKIPS_TOMBSTONES false
+#define FIXES_DELETES_LOWER_LAYER true
+#define LAYER_BASED_PATH_COMPRESSION true
+#define MEMORY_COLLECTION true
+#define ITERATION_SKIPS_TOMBSTONES true
 
 namespace diskann
 {
@@ -1025,10 +1022,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
 
     uint32_t hops = 0;
     uint32_t cmps = 0;
-    #if INSERT_FIXES_DELETES || SEARCH_FIXES_DELETES
-    // Only fix one node
-    bool fixed = false;
-    #endif
     // has_unexpanded_node and closest_unexpanded look at the top of the priority
     // queue without taking them off the queue
     #if LAYER_BASED_PATH_COMPRESSION
@@ -1039,6 +1032,10 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     std::vector<uint32_t> compression_starts;
     std::vector<uint32_t> compression_ends;
     #endif
+    #if FIXES_DELETES_LOWER_LAYER
+    size_t fixed = 0;
+    #endif
+
     while (best_L_nodes.has_unexpanded_node())
     {
         hops ++;
@@ -1108,19 +1105,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
             }
 
             if (is_not_visited(id)) {
-                #if ITERATION_SKIPS_TOMBSTONES
-                if (search_invocation && (!improvement_allowed)) {
-                    _tombstone_state_locks[id].lock();
-                    if ((!_graph_store->is_tombstoned(id))) {
-                        id_scratch.push_back(id);
-                    }
-                    _tombstone_state_locks[id].unlock();
-                } else {
-                    id_scratch.push_back(id);
-                }
-                #else
                 id_scratch.push_back(id);
-                #endif
             }
         }
             
@@ -1167,15 +1152,34 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         #endif
         for (size_t m = 0; m < id_scratch.size(); ++m)
         {
-            // TODO (SylviaZiyuZhang): Try moving consolidation to here
-            best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
             #if FIXES_DELETES_LOWER_LAYER
+            #if ITERATION_SKIPS_TOMBSTONES
             auto dc = id_scratch[m];
             _tombstone_state_locks[dc].lock();
-            if (_graph_store->is_tombstoned(dc) && dc != n) {
-                fix_this = true;
+            if (_graph_store->is_tombstoned(dc)) {
+                if ((true || improvement_allowed) && dc != n) {
+                    fix_this = true;
+                    fixed ++;
+                }
+                if ((!search_invocation) || improvement_allowed) {
+                    best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
+                }
+            } else { // skips tombstone
+                best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
             }
             _tombstone_state_locks[dc].unlock();
+            #else
+            best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
+            auto dc = id_scratch[m];
+            _tombstone_state_locks[dc].lock();
+            if ((true || improvement_allowed) && _graph_store->is_tombstoned(dc) && dc != n) { // Each search query fixes once
+                fix_this = true;
+                fixed ++;
+            }
+            _tombstone_state_locks[dc].unlock();
+            #endif
+            #else
+            best_L_nodes.insert(Neighbor(id_scratch[m], dist_scratch[m]), Neighbor(n, n_dist));
             #endif
         }
         #if FIXES_DELETES_LOWER_LAYER
@@ -1185,40 +1189,6 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         _tombstone_state_locks[n].unlock();
         if (fix_this && n_live) {
             process_delete(n, _indexingRange, _indexingMaxC, _indexingAlpha);
-        }
-        #endif
-
-        // TODO (SylviaZiyuZhang): Maybe try to give this work to another worker
-        #if INSERT_FIXES_DELETES
-        // TODO (SylviaZiyuZhang): Try removing the constraint that n has to be live.
-        _tombstone_state_locks[n].lock();
-        bool n_live = !_graph_store->is_tombstoned(n);
-        _tombstone_state_locks[n].unlock();
-        _tombstone_state_locks[pred_id].lock();
-        bool pred_live = !_graph_store->is_tombstoned(pred_id);
-        _tombstone_state_locks[pred_id]unlock();
-        if (!n_live && !search_invocation && !fixed && n != pred_id && pred_live) { // n is deleted
-            // This fixes one child
-            // add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
-
-            // This fixes one parent
-            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
-        }
-        #endif
-
-        #if SEARCH_FIXES_DELETES
-        // TODO (SylviaZiyuZhang): Figure out the locking situation here
-        _tombstone_state_locks[n].lock();
-        bool n_live = !_graph_store->is_tombstoned(n);
-        _tombstone_state_locks[n].unlock();
-        _tombstone_state_locks[pred_id].lock();
-        bool pred_live = !_graph_store->is_tombstoned(pred_id);
-        if (!n_live && search_invocation && !fixed && n != pred_id && pred_live) { // n is deleted
-            // This fixes one child
-            //add_multiple_neighbors_and_prune(pred_id, copy_of_neighbors, n);
-
-            // This fixes one parent
-            process_delete(pred_id, _indexingRange, _indexingMaxC, _indexingAlpha);
         }
         #endif
 
