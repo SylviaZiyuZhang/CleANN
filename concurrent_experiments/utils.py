@@ -98,7 +98,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
     bridge_start_lb=3, bridge_start_hb=5, bridge_end_lb=9, bridge_end_hb=64, bridge_prob=0.5,
 ):
 
-    settings = [ # name, alpha, build complexity, insert complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob
+    settings = [ # name, alpha, build complexity, insert complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob, cleaning_threshold
         #('C', 1.2, 64, 32, 128, 3, 6, 9, 64, 0.3),
         #('D', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
         #('E', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.5),
@@ -106,29 +106,54 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
         #('G', 1.2, 64, 32, 32, 3, 6, 9, 12, 0.7),
         #('H', 1.2, 64, 32, 32, 9, 12, 9, 12, 0.3)
         # param_sweep_6 (k10), param_sweep_7 (k50)
-        ('C1', 1, 64, 32, 128, 3, 6, 9, 64, 0.1),
-        ('C4', 1.3, 64, 32, 128, 3, 6, 9, 64, 0.1),
-        ('A1', 1, 64, 64, 100, 3, 6, 9, 64, 0.1),
-        ('A4', 1.3, 64, 64, 100, 3, 6, 9, 64, 0.1),
-        ('B4', 1.3, 64, 64, 75, 3, 6, 9, 64, 0.1),
-        ('D1', 1, 64, 64, 64, 3, 6, 9, 64, 0.1),
-        ('D2', 1.1, 64, 64, 64, 3, 6, 9, 64, 0.1),
-        ('D3', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
-        ('D4', 1.3, 64, 64, 64, 3, 6, 9, 64, 0.1),
-        ('E1', 1, 64, 64, 64, 3, 6, 9, 64, 0.5),
-        ('E4', 1.3, 64, 64, 64, 3, 6, 9, 64, 0.5),
-        # baseline_sweep_2
-        #('baseline_B4', 1.3, 64, 64, 75, 3, 6, 9, 64, 0.1),
-        #('baseline_D3', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
-        #('baseline_A1', 1, 64, 64, 100, 3, 6, 9, 64, 0.1),
-        #('baseline_C3', 1.2, 64, 32, 128, 3, 6, 9, 64, 0.1),
-        #('baseline_C4', 1.3, 64, 32, 128, 3, 6, 9, 64, 0.1),
+        #('C1', 1, 64, 32, 128, 3, 6, 9, 64, 0.1, 7),
+        #('C4', 1.3, 64, 32, 128, 3, 6, 9, 64, 0.1, 7),
+        #('C5', 1.3, 64, 32, 128, 9, 64, 9, 64, 0.1, 7),
+        # ('A1', 1, 64, 64, 100, 3, 6, 9, 64, 0.1, 7),
+        # ('A4', 1.3, 64, 64, 100, 3, 6, 9, 64, 0.1, 7),
+        #('B4', 1.3, 64, 64, 75, 3, 6, 9, 64, 0.1, 7),
+        #('B5', 1.3, 64, 64, 75, 9, 64, 9, 64, 0.1, 7),
+        #('B6', 1.2, 64, 64, 75, 3, 6, 9, 64, 0.1, 7),
+        #('B7', 1.2, 64, 64, 75, 2, 5, 8, 64, 0.1, 7),
+        #('B8', 1.2, 64, 64, 75, 9, 64, 9, 64, 0.1, 7),
 
-        #('boundary_insert_test', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1), # mixed_throughput_cleann was measured here, mixed_throughput_consolidate
-        # ('static_recompute', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1),
+        ('B9', 1.2, 64, 64, 75, 19, 22, 20, 64, 0.1, 7),
+        ('B10', 1.2, 64, 64, 75, 20, 64, 20, 64, 0.1, 7),
+
+        # ('B9_skip', 1.2, 64, 64, 75, 19, 22, 20, 64, 0.1, 7),
+        # ('B10_skip', 1.2, 64, 64, 75, 20, 64, 20, 64, 0.1, 7),
+
+        # ('D1', 1, 64, 64, 64, 3, 6, 9, 64, 0.1, 7),
+        #('D2', 1.1, 64, 64, 64, 3, 6, 9, 64, 0.1, 7),
+        #('D5', 1.1, 64, 64, 64, 9, 64, 9, 64, 0.1, 7),
+        ('D3', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 7),
+        #('D8', 1.2, 64, 64, 75, 3, 6, 9, 64, 0.1, 7),
+        #('D4', 1.3, 64, 64, 64, 3, 6, 9, 64, 0.1, 7),
+        #('D6', 1.3, 64, 64, 64, 9, 64, 9, 64, 0.1, 7),
+        #('D7', 1.3, 64, 64, 64, 3, 12, 3, 12, 0.1, 7),
+        # ('E1', 1, 64, 64, 64, 3, 6, 9, 64, 0.5, 7),
+        # ('E4', 1.3, 64, 64, 64, 3, 6, 9, 64, 0.5, 7),
+        # ('F3', 1.2, 64, 64, 64, 2, 12, 2, 12, 0.1, 7),
+        # baseline_sweep_2, baseline_sweep_3
+        # ('baseline_B4', 1.3, 64, 64, 75, 3, 6, 9, 64, 0.1, 7),
+        #('baseline_D3', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 7),
+        # ('baseline_A1', 1, 64, 64, 100, 3, 6, 9, 64, 0.1, 7),
+        # ('baseline_C3', 1.2, 64, 32, 128, 3, 6, 9, 64, 0.1, 7),
+        # ('baseline_C4', 1.3, 64, 32, 128, 3, 6, 9, 64, 0.1, 7),
+
+        #('boundary_insert_test', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 7), # mixed_throughput_cleann was measured here, mixed_throughput_consolidate
+        # ('static_recompute', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 7),
+
+        # ('D3_cleaning_threshold_3', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 3),
+        # ('D3_cleaning_threshold_5', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 5),
+        # ('D3_cleaning_threshold_10', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 10),
+        # ('D3_cleaning_threshold_15', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 15),
+        # ('D3_cleaning_threshold_23', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 23),
+        # ('D3_cleaning_threshold_31', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 31),
+        # ('D3_cleaning_threshold_63', 1.2, 64, 64, 64, 3, 6, 9, 64, 0.1, 63),
     ]
     for setting in settings:
-        setting_name, alpha, build_complexity, insert_complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob = setting
+        setting_name, alpha, build_complexity, insert_complexity, query_complexity, bridge_start_lb, bridge_start_hb, bridge_end_lb, bridge_end_hb, bridge_prob, cleaning_threshold = setting
         time_keys = [plan[0] for plan in plans] + ["Total"]
         all_times = {time_key: [] for time_key in time_keys}
         recall_keys = [plan[0] for plan in plans] + ["Recall"]
@@ -143,7 +168,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 alpha=alpha,
                 vector_dtype=np.float32,
                 dimensions=plans[0][1].shape[1],
-                max_vectors=max_vectors,
+                max_vectors=600000,
                 complexity=build_complexity,
                 insert_complexity=insert_complexity,
                 graph_degree=graph_degree,
@@ -152,6 +177,7 @@ def run_dynamic_test(plans, neighbors, dists, max_vectors,
                 bridge_end_lb=bridge_end_lb,
                 bridge_end_hb=bridge_end_hb,
                 bridge_prob=bridge_prob,
+                cleaning_threshold=cleaning_threshold,
             )
             if batch_build:
                 start_build_time = time.time()
