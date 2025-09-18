@@ -1031,6 +1031,7 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
     // std::unordered_map<uint32_t, uint32_t> pred_map;
     std::vector<uint32_t> compression_starts;
     std::vector<uint32_t> compression_ends;
+    std::vector<size_t> dynamic_delete_locs;
     #endif
     #if FIXES_DELETES_LOWER_LAYER
     size_t fixed = 0;
@@ -1188,7 +1189,11 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
         bool n_live = !_graph_store->is_tombstoned(n);
         _tombstone_state_locks[n].unlock();
         if (fix_this && n_live) {
-            process_delete(n, _indexingRange, _indexingMaxC, _indexingAlpha);
+            // #pragma omp task
+            // {
+                // process_delete(n, _indexingRange, _indexingMaxC, _indexingAlpha);
+		dynamic_delete_locs.push_back(n);
+            // }
         }
         #endif
 
@@ -1221,7 +1226,18 @@ std::pair<uint32_t, uint32_t> Index<T, TagT, LabelT>::iterate_to_fixed_point(
                 }
             }
         }
-        add_compression_edges(compression_starts, compression_ends, scratch);
+        #pragma omp task
+        {
+            add_compression_edges(compression_starts, compression_ends);
+        }
+    }
+    #endif
+    #if FIXES_DELETES_LOWER_LAYER
+    if (dynamic_delete_locs.size() > 0) {
+        #pragma omp task
+        {
+            process_delete_set(dynamic_delete_locs, _indexingRange, _indexingMaxC, _indexingAlpha);
+        }
     }
     #endif
     if (search_invocation) {
@@ -1317,9 +1333,11 @@ void Index<T, TagT, LabelT>::search_for_point_and_prune(int location, uint32_t L
 Add edges to achieve path compression
 */
 template <typename T, typename TagT, typename LabelT>
-void Index<T, TagT, LabelT>::add_compression_edges(std::vector<uint32_t> &starts, std::vector<uint32_t> &ends,
-                                          InMemQueryScratch<T> *scratch)
+void Index<T, TagT, LabelT>::add_compression_edges(std::vector<uint32_t> &starts, std::vector<uint32_t> &ends)
 {
+    ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+    auto scratch = manager.scratch_space();
+
     uint32_t range = _indexingRange;
     // add reverse links from all the visited nodes to node n.
     
@@ -1553,7 +1571,7 @@ void Index<T, TagT, LabelT>::occlude_list(const uint32_t location, std::vector<N
                 }
             }
         }
-        add_compression_edges(compression_starts, compression_ends, scratch);
+        add_compression_edges(compression_starts, compression_ends);
     }
     #endif
     
@@ -2906,7 +2924,7 @@ inline void Index<T, TagT, LabelT>::process_delete(const tsl::robin_map<uint32_t
         }
     }
 
-    if (modify)
+    if (modify && expanded_nodes_set.size() > 0)
     {
         if (expanded_nodes_set.size() <= range)
         {
@@ -3005,6 +3023,16 @@ inline void Index<T, TagT, LabelT>::process_delete(size_t loc, const uint32_t ra
             std::unique_lock<non_recursive_mutex> adj_list_lock(_locks[loc]);
             _graph_store->set_neighbours((location_t)loc, occlude_list_output);
         }
+    }
+}
+
+
+template <typename T, typename TagT, typename LabelT>
+inline void Index<T, TagT, LabelT>::process_delete_set(std::vector<size_t> locs, const uint32_t range, const uint32_t maxc, const float alpha)
+// loc is a possible still live incoming neighbor of a deleted point
+{
+    for (auto loc: locs) {
+        process_delete(loc, range, maxc, alpha);
     }
 }
 

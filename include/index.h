@@ -285,8 +285,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
                       InMemQueryScratch<T> *scratch);
     
     // add compression links from each pair of starts[i] to ends[i].
-    void add_compression_edges(std::vector<uint32_t> &starts, std::vector<uint32_t> &ends,
-                                          InMemQueryScratch<T> *scratch);
+    void add_compression_edges(std::vector<uint32_t> &starts, std::vector<uint32_t> &ends);
 
     void inter_insert(uint32_t n, std::vector<uint32_t> &pruned_list, InMemQueryScratch<T> *scratch);
 
@@ -322,6 +321,7 @@ template <typename T, typename TagT = uint32_t, typename LabelT = uint32_t> clas
         Another signature for process_delete for consolidation on the fly. Thread-safe.
     */
     void process_delete(size_t loc, const uint32_t range, const uint32_t maxc, const float alpha);
+    void process_delete_set(std::vector<size_t> locs, const uint32_t range, const uint32_t maxc, const float alpha);
 
     void initialize_query_scratch(uint32_t num_threads, uint32_t search_l, uint32_t indexing_l, uint32_t r,
                                   uint32_t maxc, size_t dim);
